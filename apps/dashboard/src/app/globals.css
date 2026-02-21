@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Premium MoltMoney Color System */
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    
+    /* Premium Purple & Gold Palette */
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+    --primary-dark: 262 83% 48%;
+    
+    --secondary: 45 93% 58%;
+    --secondary-foreground: 240 10% 3.9%;
+    
+    --accent: 262 90% 65%;
+    --accent-foreground: 0 0% 100%;
+    
+    /* Neutral Tones */
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 262 83% 58%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    
+    --radius: 0.75rem;
+    
+    /* Premium Gradients */
+    --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+    --gradient-gold: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    --gradient-premium: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #fbbf24 100%);
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+    
+    --secondary: 45 93% 58%;
+    --secondary-foreground: 240 10% 3.9%;
+    
+    --accent: 262 90% 65%;
+    --accent-foreground: 0 0% 100%;
+    
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 262 83% 58%;
+    
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer utilities {
+  .gradient-primary {
+    background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  }
+  
+  .gradient-gold {
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  }
+  
+  .gradient-premium {
+    background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #fbbf24 100%);
+  }
+  
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  
+  .glass-dark {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+  
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-20px);
+    }
+  }
+  
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 20px rgba(139, 92, 246, 0.5);
+    }
+    to {
+      box-shadow: 0 0 30px rgba(139, 92, 246, 0.8), 0 0 40px rgba(139, 92, 246, 0.6);
+    }
+  }
+  
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #fbbf24 100%);
+  }
+}

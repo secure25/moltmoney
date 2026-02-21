@@ -1,0 +1,198 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                                                   String           @id @default(uuid())
+  type                                                 AccountType
+  balance                                              Decimal          @db.Decimal(18, 2)
+  currency                                             String           @default("USD")
+  status                                               AccountStatus
+  spendingRules                                        Json?
+  agentId                                              String?          @unique
+  createdAt                                            DateTime         @default(now())
+  accountNumber                                        String?          @unique
+  Agent                                                Agent?           @relation(fields: [agentId], references: [id])
+  PaymentRequest_PaymentRequest_fromAccountIdToAccount PaymentRequest[] @relation("PaymentRequest_fromAccountIdToAccount")
+  PaymentRequest_PaymentRequest_toAccountIdToAccount   PaymentRequest[] @relation("PaymentRequest_toAccountIdToAccount")
+  Transaction_Transaction_fromAccountIdToAccount       Transaction[]    @relation("Transaction_fromAccountIdToAccount")
+  Transaction_Transaction_toAccountIdToAccount         Transaction[]    @relation("Transaction_toAccountIdToAccount")
+  VirtualCard                                          VirtualCard[]
+  Webhook                                              Webhook[]
+
+  @@index([accountNumber])
+  @@index([agentId])
+  @@index([status])
+}
+
+model Agent {
+  id        String   @id @default(uuid())
+  name      String
+  platform  String
+  apiKey    String   @unique
+  ownerId   String
+  createdAt DateTime @default(now())
+  Account   Account?
+  Owner     Owner    @relation(fields: [ownerId], references: [id])
+
+  @@index([apiKey])
+  @@index([ownerId])
+}
+
+model ExternalBankAccount {
+  id            String   @id @default(uuid())
+  routingNumber String
+  accountNumber String
+  accountHolder String
+  accountType   String
+  balance       Decimal  @db.Decimal(18, 2)
+  status        String
+  createdAt     DateTime @default(now())
+
+  @@unique([routingNumber, accountNumber])
+  @@index([routingNumber])
+}
+
+model Owner {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  password  String
+  createdAt DateTime @default(now())
+  Agent     Agent[]
+}
+
+model PaymentRequest {
+  id                                            String        @id @default(uuid())
+  amount                                        Decimal       @db.Decimal(18, 2)
+  currency                                      String        @default("USD")
+  description                                   String
+  status                                        RequestStatus
+  paymentLink                                   String?       @unique
+  fromAccountId                                 String
+  toAccountId                                   String?
+  expiresAt                                     DateTime
+  createdAt                                     DateTime      @default(now())
+  Account_PaymentRequest_fromAccountIdToAccount Account       @relation("PaymentRequest_fromAccountIdToAccount", fields: [fromAccountId], references: [id])
+  Account_PaymentRequest_toAccountIdToAccount   Account?      @relation("PaymentRequest_toAccountIdToAccount", fields: [toAccountId], references: [id])
+
+  @@index([expiresAt])
+  @@index([fromAccountId])
+  @@index([status])
+  @@index([toAccountId])
+}
+
+model Transaction {
+  id                                         String    @id @default(uuid())
+  amount                                     Decimal   @db.Decimal(18, 2)
+  currency                                   String    @default("USD")
+  type                                       TxType
+  status                                     TxStatus
+  description                                String?
+  merchantName                               String?
+  fromAccountId                              String
+  toAccountId                                String?
+  approvalRequired                           Boolean   @default(false)
+  approvedAt                                 DateTime?
+  createdAt                                  DateTime  @default(now())
+  Account_Transaction_fromAccountIdToAccount Account   @relation("Transaction_fromAccountIdToAccount", fields: [fromAccountId], references: [id])
+  Account_Transaction_toAccountIdToAccount   Account?  @relation("Transaction_toAccountIdToAccount", fields: [toAccountId], references: [id])
+
+  @@index([createdAt])
+  @@index([fromAccountId])
+  @@index([status])
+  @@index([toAccountId])
+  @@index([type])
+}
+
+model VirtualCard {
+  id          String     @id @default(uuid())
+  cardNumber  String     @unique
+  expiryMonth Int
+  expiryYear  Int
+  cvv         String
+  status      CardStatus
+  spendLimit  Decimal?   @db.Decimal(18, 2)
+  accountId   String
+  createdAt   DateTime   @default(now())
+  Account     Account    @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([status])
+}
+
+model Webhook {
+  id           String         @id @default(uuid())
+  accountId    String
+  url          String
+  events       String[]
+  secret       String
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  Account      Account        @relation(fields: [accountId], references: [id])
+  WebhookEvent WebhookEvent[]
+
+  @@index([accountId])
+  @@index([active])
+}
+
+model WebhookEvent {
+  id          String    @id @default(uuid())
+  webhookId   String
+  eventType   String
+  payload     Json
+  attempts    Int       @default(0)
+  lastAttempt DateTime?
+  delivered   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  Webhook     Webhook   @relation(fields: [webhookId], references: [id])
+
+  @@index([createdAt])
+  @@index([delivered])
+  @@index([webhookId])
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum AccountType {
+  AGENT
+  OWNER
+  GUEST
+}
+
+enum CardStatus {
+  ACTIVE
+  FROZEN
+  CANCELLED
+}
+
+enum RequestStatus {
+  PENDING
+  PAID
+  EXPIRED
+  DECLINED
+}
+
+enum TxStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  DECLINED
+  FAILED
+}
+
+enum TxType {
+  INTERNAL
+  INBOUND
+  OUTBOUND
+  PAYOUT
+}
