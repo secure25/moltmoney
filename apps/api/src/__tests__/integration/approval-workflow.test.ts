@@ -291,7 +291,7 @@ describe('Integration: Approval Workflow', () => {
     expect(recipientBalance.toNumber()).toBe(210); // 50 + 160
   });
 
-  it('should handle blocked category violations requiring approval', async () => {
+  it('should hard-reject blocked category payments (never owner approval)', async () => {
     // Create agent account with blocked categories
     const { account } = await accountService.createAgentAccount(
       testOwnerId,
@@ -311,33 +311,30 @@ describe('Integration: Approval Workflow', () => {
       'OpenClaw'
     );
 
-    // Attempt payment to blocked category
-    const payment = await paymentService.sendPayment(
-      account.id,
-      recipientAccount.id,
-      new Decimal(50),
-      'Casino payment',
-      'Gambling Casino', // Merchant name
-      'gambling' // Merchant category - blocked
-    );
+    // Attempt payment to blocked category: hard rejection — no transaction is
+    // created and the owner approval flow is never reachable for it.
+    await expect(
+      paymentService.sendPayment(
+        account.id,
+        recipientAccount.id,
+        new Decimal(50),
+        'Casino payment',
+        'Gambling Casino', // Merchant name
+        'gambling' // Merchant category - blocked
+      )
+    ).rejects.toThrow(/Spending rule violation/);
 
-    // Should require approval due to blocked category
-    expect(payment.status).toBe('PENDING');
-    expect(payment.approvalRequired).toBe(true);
+    // No transaction was created for the rejected payment (excluding the
+    // INBOUND funding transaction from setup).
+    const txs = await prisma.transaction.findMany({
+      where: { fromAccountId: account.id, type: { not: 'INBOUND' } },
+    });
+    expect(txs).toHaveLength(0);
 
-    // Owner approves despite blocked category
-    const approvedPayment = await paymentService.approvePayment(
-      payment.id,
-      testOwnerId
-    );
-
-    expect(approvedPayment.status).toBe('COMPLETED');
-
-    // Verify balances updated
+    // Balances untouched.
     const senderBalance = await accountService.getBalance(account.id);
     const recipientBalance = await accountService.getBalance(recipientAccount.id);
-    
-    expect(senderBalance.toNumber()).toBe(950); // 1000 - 50
-    expect(recipientBalance.toNumber()).toBe(50);
+    expect(senderBalance.toNumber()).toBe(1000);
+    expect(recipientBalance.toNumber()).toBe(0);
   });
 });

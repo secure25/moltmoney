@@ -150,8 +150,34 @@ describe('PaymentService', () => {
         'gambling'
       );
 
-      expect(evaluation.allowed).toBe(true);
-      expect(evaluation.requiresApproval).toBe(true);
+      expect(evaluation.allowed).toBe(false);
+      expect(evaluation.requiresApproval).toBe(false);
+      expect(evaluation.violations.some(v => v.includes('category blocked'))).toBe(true);
+    });
+
+    it('should hard-reject a blocked category even when monetary limits would also be exceeded', async () => {
+      const { account } = await accountService.createAgentAccount(
+        testOwnerId,
+        'Test Agent',
+        'OpenClaw'
+      );
+
+      await accountService.updateSpendingRules(account.id, {
+        blockedCategories: ['gambling', 'alcohol'],
+        perTransactionLimit: '10.00',
+      });
+
+      const updatedAccount = await accountService.getAccount(account.id);
+      const evaluation = await paymentService.evaluateSpendingRules(
+        updatedAccount,
+        new Decimal('50'),
+        'Casino',
+        'gambling'
+      );
+
+      // Blocked category takes precedence: hard rejection, not approval.
+      expect(evaluation.allowed).toBe(false);
+      expect(evaluation.requiresApproval).toBe(false);
       expect(evaluation.violations.some(v => v.includes('category blocked'))).toBe(true);
     });
   });

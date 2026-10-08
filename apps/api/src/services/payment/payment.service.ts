@@ -1,7 +1,8 @@
 import { PrismaClient, Account, Transaction, TxType, TxStatus, AccountStatus } from '@moltmoney/database';
+import { getSpentToday } from './spending-policy';
 import Decimal from 'decimal.js';
 import { isValidAmount, subtract, WebhookEventType } from '@moltmoney/shared';
-import { PaymentProvider } from '../../providers/payment-provider.interface';
+import { CaptureResponse, PaymentProvider, WebhookEvent } from '../../providers/payment-provider.interface';
 import { WebhookService } from '../webhook';
 import { WebSocketServer, RealtimeEventType } from '../../websocket';
 
@@ -53,6 +54,23 @@ export class PaymentService {
 
     const rules = account.spendingRules as any as SpendingRules;
 
+    // Blocked categories are HARD prohibitions (policy decision): a purchase
+    // in a blocked category is rejected outright — it never becomes an
+    // owner-approval request — and takes precedence over the monetary rules
+    // below, which remain the existing soft (approval-required) flow.
+    // NOTE: a *missing* category is only hard-rejected on the PayPal checkout
+    // path (see createCheckoutOrder); internal sends/payouts keep their own
+    // semantics here.
+    if (rules.blockedCategories && rules.blockedCategories.length > 0) {
+      if (merchantCategory && rules.blockedCategories.includes(merchantCategory)) {
+        return {
+          allowed: false,
+          requiresApproval: false,
+          violations: [`Merchant category blocked: ${merchantCategory}`],
+        };
+      }
+    }
+
     // Check per-transaction limit (Requirement 6.4)
     if (rules.perTransactionLimit) {
       const limit = new Decimal(rules.perTransactionLimit);
@@ -65,33 +83,10 @@ export class PaymentService {
     // Check daily limit (Requirement 6.3)
     if (rules.dailyLimit) {
       const limit = new Decimal(rules.dailyLimit);
-      
-      // Calculate today's spending
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      
-      const endOfDay = new Date();
-      endOfDay.setHours(23, 59, 59, 999);
 
-      // Sum all completed OUTBOUND, INTERNAL, and PAYOUT transactions for today
-      const todayTransactions = await this.prisma.transaction.findMany({
-        where: {
-          fromAccountId: account.id,
-          status: TxStatus.COMPLETED,
-          type: {
-            in: [TxType.OUTBOUND, TxType.INTERNAL, TxType.PAYOUT],
-          },
-          createdAt: {
-            gte: startOfDay,
-            lte: endOfDay,
-          },
-        },
-      });
-
-      const todaySpending = todayTransactions.reduce(
-        (sum, tx) => sum.plus(new Decimal(tx.amount.toString())),
-        new Decimal(0)
-      );
+      // Shared authoritative aggregation (same helper backs the
+      // /spending-policy endpoint — one definition of "spent today").
+      const todaySpending = await getSpentToday(this.prisma, account.id);
 
       const projectedSpending = todaySpending.plus(amount);
       
@@ -101,13 +96,8 @@ export class PaymentService {
       }
     }
 
-    // Check blocked categories (Requirement 6.5)
-    if (rules.blockedCategories && rules.blockedCategories.length > 0 && merchantCategory) {
-      if (rules.blockedCategories.includes(merchantCategory)) {
-        violations.push(`Merchant category blocked: ${merchantCategory}`);
-        requiresApproval = true;
-      }
-    }
+    // Check blocked categories (Requirement 6.5) — handled above as a hard
+    // prohibition; nothing else to do here.
 
     // Check approval threshold
     if (rules.requireApprovalAbove) {
@@ -207,6 +197,12 @@ export class PaymentService {
       merchantName,
       merchantCategory
     );
+
+    // Blocked categories hard-reject (never owner approval); the monetary
+    // rules remain the existing soft approval flow.
+    if (!ruleEvaluation.allowed) {
+      throw new Error(`Spending rule violation: ${ruleEvaluation.violations.join('; ')}`);
+    }
 
     // If rules require approval, create pending transaction (Requirement 5.2, 7.1)
     if (ruleEvaluation.requiresApproval) {
@@ -577,40 +573,54 @@ export class PaymentService {
     merchantName?: string,
     merchantCategory?: string
   ): Promise<Transaction> {
+    // For OUTBOUND transactions, authorize with payment provider outside DB transaction (Requirement 5.5, Phase 8)
+    let authResponse: any;
+    if (txType === TxType.OUTBOUND && merchantName) {
+      authResponse = await this.paymentProvider.authorizePayment(
+        '', // Card number would come from virtual card
+        amount,
+        merchantName,
+        merchantCategory
+      );
+
+      if (!authResponse.approved) {
+        throw new Error(`Payment declined: ${authResponse.declineReason}`);
+      }
+    }
+
     // Use database transaction for atomicity (Requirement 5.7)
     const result = await this.prisma.$transaction(async (tx) => {
+      // Re-verify sender balance inside transaction to prevent race conditions
+      const freshSender = await tx.account.findUnique({
+        where: { id: fromAccount.id },
+      });
+      if (!freshSender) {
+        throw new Error('Sender account not found');
+      }
+      const currentBalance = new Decimal(freshSender.balance.toString());
+      if (currentBalance.lessThan(amount)) {
+        throw new Error('Insufficient balance');
+      }
+
       // Deduct from sender balance
-      const currentBalance = new Decimal(fromAccount.balance.toString());
       const newBalance = subtract(currentBalance, amount);
 
-            await tx.account.update({
+      await tx.account.update({
         where: { id: fromAccount.id },
         data: { balance: newBalance },
       });
 
       // For INTERNAL transactions, add to recipient balance (Requirement 5.6)
-      
       if (toAccount && txType === TxType.INTERNAL) {
-        const recipientBalance = new Decimal(toAccount.balance.toString());
+        const recipient = await tx.account.findUnique({
+          where: { id: toAccount.id },
+        });
+        const recipientBalance = new Decimal(recipient!.balance.toString());
         const newRecipientBalance = recipientBalance.plus(amount);
         await tx.account.update({
           where: { id: toAccount.id },
           data: { balance: newRecipientBalance },
         });
-      }
-
-      // For OUTBOUND transactions, authorize with payment provider (Requirement 5.5)
-      if (txType === TxType.OUTBOUND && merchantName) {
-        const authResponse = await this.paymentProvider.authorizePayment(
-          '', // Card number would come from virtual card
-          amount,
-          merchantName,
-          merchantCategory
-        );
-
-        if (!authResponse.approved) {
-          throw new Error(`Payment declined: ${authResponse.declineReason}`);
-        }
       }
 
       // Create transaction record
@@ -625,6 +635,7 @@ export class PaymentService {
           fromAccountId: fromAccount.id,
           toAccountId: toAccount?.id || undefined,
           approvalRequired: false,
+          providerRefId: authResponse?.authorizationId || undefined,
         },
       });
 
@@ -789,6 +800,21 @@ export class PaymentService {
     const fromAccount = transaction.Account_Transaction_fromAccountIdToAccount;
     if (!fromAccount.Agent || fromAccount.Agent.ownerId !== ownerId) {
       throw new Error('Not authorized to approve this transaction');
+    }
+
+    // PayPal checkout orders are completed by the provider capture flow, not
+    // by owner approval. Owner approval only unlocks capture — never deduct
+    // the balance here, or the ledger and PayPal would diverge.
+    if (transaction.providerName === 'paypal') {
+      const approved = await this.prisma.transaction.updateMany({
+        where: { id: transactionId, status: { in: [TxStatus.PENDING, TxStatus.APPROVED] } },
+        data: { approvedAt: new Date() },
+      });
+      if (approved.count !== 1) {
+        throw new Error('Transaction is not awaiting approval');
+      }
+      const refreshed = await this.prisma.transaction.findUnique({ where: { id: transactionId } });
+      return refreshed as Transaction;
     }
 
     // Check sufficient balance
@@ -1031,5 +1057,742 @@ export class PaymentService {
     }
 
     return updatedTransaction;
+  }
+
+  /**
+   * Get the active payment provider
+   */
+  getPaymentProvider(): PaymentProvider {
+    return this.paymentProvider;
+  }
+
+  /**
+   * Create a checkout order with buyer approval flow (e.g. PayPal Checkout)
+   * Phase 5 & 6
+   */
+  async createCheckoutOrder(
+    fromAccountId: string,
+    amount: Decimal,
+    options?: {
+      merchantName?: string;
+      merchantCategory?: string;
+      description?: string;
+      returnUrl?: string;
+      cancelUrl?: string;
+    }
+  ): Promise<{ transaction: Transaction; approvalUrl?: string; orderId: string }> {
+    if (!isValidAmount(amount)) {
+      throw new Error('Amount must be positive and non-zero');
+    }
+
+    const fromAccount = await this.prisma.account.findUnique({
+      where: { id: fromAccountId },
+    });
+
+    if (!fromAccount) {
+      throw new Error('Sender account not found');
+    }
+
+    if (fromAccount.status !== AccountStatus.ACTIVE) {
+      throw new Error(`Sender account is ${fromAccount.status.toLowerCase()}`);
+    }
+
+    // Check balance
+    const currentBalance = new Decimal(fromAccount.balance.toString());
+    if (currentBalance.lessThan(amount)) {
+      throw new Error('Insufficient balance');
+    }
+
+    // Fail-closed category policy (decision: missing category = hard reject):
+    // when this account configures blocked categories, a PayPal order MUST
+    // declare its merchantCategory. We cannot verify a prohibited purchase
+    // without one, so the order is rejected before any transaction record or
+    // provider call. "Missing" is never interpreted as "allowed".
+    const checkoutRules = fromAccount.spendingRules as any as SpendingRules | null;
+    const blockedCategories = Array.isArray(checkoutRules?.blockedCategories)
+      ? checkoutRules.blockedCategories
+      : [];
+    if (blockedCategories.length > 0 && !options?.merchantCategory?.trim()) {
+      throw new Error(
+        'Spending rule violation: merchantCategory is required because this account has blocked categories configured'
+      );
+    }
+
+    // Evaluate spending rules
+    const ruleEvaluation = await this.evaluateSpendingRules(
+      fromAccount,
+      amount,
+      options?.merchantName,
+      options?.merchantCategory
+    );
+
+    if (!ruleEvaluation.allowed) {
+      throw new Error(`Spending rule violation: ${ruleEvaluation.violations.join('; ')}`);
+    }
+
+    // Create MoltMoney PENDING transaction first (authoritative record)
+    const transaction = await this.prisma.transaction.create({
+      data: {
+        amount,
+        currency: 'USD',
+        type: TxType.OUTBOUND,
+        status: TxStatus.PENDING,
+        description: options?.description || undefined,
+        merchantName: options?.merchantName || undefined,
+        merchantCategory: options?.merchantCategory || undefined,
+        fromAccountId,
+        approvalRequired: ruleEvaluation.requiresApproval,
+        providerName: 'paypal',
+      },
+    });
+
+    if (!this.paymentProvider.createOrder) {
+      throw new Error('Active payment provider does not support creating checkout orders');
+    }
+
+    // Call provider outside DB transaction
+    const orderRes = await this.paymentProvider.createOrder({
+      amount,
+      description: options?.description,
+      merchantName: options?.merchantName,
+      referenceId: transaction.id,
+      returnUrl: options?.returnUrl,
+      cancelUrl: options?.cancelUrl,
+    });
+
+    // Update transaction with provider order reference and metadata
+    const updatedTransaction = await this.prisma.transaction.update({
+      where: { id: transaction.id },
+      data: {
+        providerRefId: orderRes.orderId,
+        providerMetadata: {
+          orderId: orderRes.orderId,
+          approvalUrl: orderRes.approvalUrl,
+          orderStatus: orderRes.status,
+          state: 'WAITING_FOR_PAYER_APPROVAL',
+        },
+      },
+    });
+
+    return {
+      transaction: updatedTransaction,
+      approvalUrl: orderRes.approvalUrl,
+      orderId: orderRes.orderId,
+    };
+  }
+
+  /**
+   * Capture an approved checkout order
+   * Phase 6
+   */
+  async captureCheckoutOrder(orderIdOrTxId: string): Promise<Transaction> {
+    // Locate transaction by id or providerRefId
+    const transaction = await this.prisma.transaction.findFirst({
+      where: {
+        OR: [
+          { id: orderIdOrTxId },
+          { providerRefId: orderIdOrTxId },
+        ],
+      },
+    });
+
+    if (!transaction) {
+      throw new Error('Transaction not found');
+    }
+
+    // Idempotency: if already completed, return
+    if (transaction.status === TxStatus.COMPLETED) {
+      return transaction;
+    }
+
+    if (transaction.status === TxStatus.DECLINED || transaction.status === TxStatus.FAILED) {
+      throw new Error(`Cannot capture transaction in ${transaction.status} status`);
+    }
+
+    // Owner approval (spending rules) must precede capture when required.
+    if (transaction.approvalRequired && !transaction.approvedAt) {
+      throw new Error('Owner approval is required before this payment can be captured');
+    }
+
+    // Defense-in-depth: category prohibitions are re-checked at capture time
+    // against the account's CURRENT rules, using the category persisted at
+    // order creation. Blocked (or unclassified, when blocks exist) orders can
+    // never be captured, even if rules changed after creation.
+    const captureAccount = await this.prisma.account.findUnique({
+      where: { id: transaction.fromAccountId },
+    });
+    if (captureAccount?.spendingRules) {
+      const captureRules = captureAccount.spendingRules as any as SpendingRules;
+      const captureBlocked = Array.isArray(captureRules.blockedCategories)
+        ? captureRules.blockedCategories
+        : [];
+      if (
+        captureBlocked.length > 0 &&
+        (!transaction.merchantCategory || captureBlocked.includes(transaction.merchantCategory))
+      ) {
+        throw new Error(
+          `Spending rule violation: merchant category prohibited (capture-time re-check)${
+            transaction.merchantCategory ? `: ${transaction.merchantCategory}` : ' (uncategorized order)'
+          }`
+        );
+      }
+    }
+
+    const orderIdToCapture = transaction.providerRefId || orderIdOrTxId;
+
+    // Call provider outside DB transaction (Phase 8)
+    const captureRes = await this.paymentProvider.capturePayment(orderIdToCapture);
+
+    if (!captureRes.success) {
+      await this.prisma.transaction.updateMany({
+        where: {
+          id: transaction.id,
+          status: { notIn: [TxStatus.COMPLETED, TxStatus.FAILED, TxStatus.DECLINED] },
+        },
+        data: { status: TxStatus.FAILED },
+      });
+      throw new Error('Payment capture failed with provider');
+    }
+
+    const { transaction: completedTx, transitioned } =
+      await this.completeCapturedTransactionIdempotent(transaction, captureRes);
+
+    if (transitioned) {
+      await this.notifyPaymentCompleted(completedTx);
+    }
+
+    return completedTx;
+  }
+
+  /**
+   * Idempotent wrapper: if a concurrent caller completed the capture while
+   * we were updating state, treat it as success instead of surfacing an
+   * error (the ledger is only ever mutated once).
+   */
+  private async completeCapturedTransactionIdempotent(
+    transaction: Transaction,
+    captureRes: CaptureResponse
+  ): Promise<{ transaction: Transaction; transitioned: boolean }> {
+    try {
+      return await this.completeCapturedTransaction(transaction, captureRes);
+    } catch (error) {
+      const fresh = await this.prisma.transaction.findUnique({
+        where: { id: transaction.id },
+      });
+      if (fresh && fresh.status === TxStatus.COMPLETED) {
+        return { transaction: fresh, transitioned: false };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Atomically mark a captured transaction COMPLETED and deduct the sender
+   * balance exactly once. Guarded by a Postgres advisory lock plus
+   * conditional updates, so webhook reconciliation, manual capture and
+   * retries can race without double-charging the ledger (Phase 8).
+   */
+  private async completeCapturedTransaction(
+    transaction: Transaction,
+    captureRes: CaptureResponse
+  ): Promise<{ transaction: Transaction; transitioned: boolean }> {
+    const captureId = captureRes.captureId || captureRes.transactionId;
+    const amount = new Decimal(transaction.amount.toString());
+
+    const mergedMetadata: Record<string, any> = {
+      ...(typeof transaction.providerMetadata === 'object' && transaction.providerMetadata !== null
+        ? (transaction.providerMetadata as object)
+        : {}),
+      captureId,
+      capturedOrderId: captureRes.transactionId,
+      capturedAt: new Date().toISOString(),
+      state: 'CAPTURED',
+    };
+
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize concurrent completion of the same transaction.
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`tx-capture:${transaction.id}`}))`;
+
+      const fresh = await tx.transaction.findUnique({ where: { id: transaction.id } });
+      if (!fresh) {
+        throw new Error('Transaction not found');
+      }
+      if (fresh.status === TxStatus.COMPLETED) {
+        return { transaction: fresh, transitioned: false };
+      }
+      if (fresh.status === TxStatus.DECLINED || fresh.status === TxStatus.FAILED) {
+        throw new Error(`Cannot complete transaction in ${fresh.status} status`);
+      }
+
+      const fromAccount = await tx.account.findUnique({
+        where: { id: fresh.fromAccountId },
+      });
+      if (!fromAccount) {
+        throw new Error('Sender account not found');
+      }
+
+      const currentBalance = new Decimal(fromAccount.balance.toString());
+      if (currentBalance.lessThan(amount)) {
+        throw new Error('Insufficient balance for capture');
+      }
+
+      // Conditional decrement: fails if a concurrent payment drained the funds.
+      const balanceUpdate = await tx.account.updateMany({
+        where: { id: fromAccount.id, balance: { gte: amount.toString() } },
+        data: { balance: subtract(currentBalance, amount) },
+      });
+      if (balanceUpdate.count !== 1) {
+        throw new Error('Insufficient balance for capture');
+      }
+
+      // Conditional state flip: only one caller can move it to COMPLETED.
+      // providerRefId keeps the PayPal ORDER id (stable lookup key for
+      // capture/webhooks); the capture id lives in providerMetadata.captureId.
+      const stateUpdate = await tx.transaction.updateMany({
+        where: {
+          id: fresh.id,
+          status: { notIn: [TxStatus.COMPLETED, TxStatus.FAILED, TxStatus.DECLINED] },
+        },
+        data: {
+          status: TxStatus.COMPLETED,
+          providerMetadata: mergedMetadata,
+        },
+      });
+      if (stateUpdate.count !== 1) {
+        // Rolls back the balance deduction; the caller re-checks state.
+        throw new Error('Transaction was updated concurrently; retrying');
+      }
+
+      const updated = await tx.transaction.findUnique({ where: { id: fresh.id } });
+      return { transaction: updated as Transaction, transitioned: true };
+    });
+  }
+
+  /** Fire outbound webhooks + websocket updates for a completed payment. */
+  private async notifyPaymentCompleted(transaction: Transaction): Promise<void> {
+    if (this.webhookService) {
+      try {
+        await this.webhookService.deliverEvent(
+          WebhookEventType.PAYMENT_COMPLETED,
+          {
+            transactionId: transaction.id,
+            amount: transaction.amount.toString(),
+            type: transaction.type,
+            fromAccountId: transaction.fromAccountId,
+            merchantName: transaction.merchantName,
+            description: transaction.description,
+          },
+          transaction.fromAccountId
+        );
+      } catch (error) {
+        console.error('Webhook delivery failed:', error);
+      }
+    }
+
+    if (this.wsServer) {
+      try {
+        await this.wsServer.broadcast(transaction.fromAccountId, {
+          type: RealtimeEventType.TRANSACTION_UPDATED,
+          data: {
+            transactionId: transaction.id,
+            status: transaction.status,
+            amount: transaction.amount.toString(),
+          },
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error('WebSocket broadcast failed:', error);
+      }
+    }
+  }
+
+  /**
+   * Locate the MoltMoney transaction a PayPal webhook resource refers to.
+   * Uses the purchase-unit custom_id (set to the MoltMoney transaction id at
+   * order creation), then the related order id, then the capture id.
+   */
+  private async findTransactionForPayPalResource(resource: any): Promise<Transaction | null> {
+    if (!resource || typeof resource !== 'object') {
+      return null;
+    }
+
+    const customId = resource.custom_id ?? resource.purchase_units?.[0]?.custom_id;
+    const orderId = resource.supplementary_data?.related_ids?.order_id ?? null;
+    const captureId = resource.id ?? null;
+
+    if (customId) {
+      const byCustomId = await this.prisma.transaction.findUnique({ where: { id: customId } });
+      if (byCustomId) return byCustomId;
+    }
+    if (orderId) {
+      const byOrderId = await this.prisma.transaction.findFirst({
+        where: { providerRefId: orderId },
+      });
+      if (byOrderId) return byOrderId;
+    }
+    if (captureId) {
+      const byCaptureId = await this.findTransactionByCaptureId(captureId);
+      if (byCaptureId) return byCaptureId;
+    }
+    return null;
+  }
+
+  /**
+   * Locate a completed transaction by the PayPal capture id stored in
+   * providerMetadata.captureId (providerRefId keeps the order id).
+   */
+  private async findTransactionByCaptureId(captureId: string): Promise<Transaction | null> {
+    if (!captureId) return null;
+    const byMetadata = await this.prisma.transaction.findFirst({
+      where: {
+        providerName: 'paypal',
+        providerMetadata: { path: ['captureId'], equals: captureId },
+      },
+    });
+    if (byMetadata) return byMetadata;
+    // Fallback for legacy/mock flows where the capture id was written to
+    // providerRefId directly.
+    return this.prisma.transaction.findFirst({
+      where: { providerRefId: captureId },
+    });
+  }
+
+  /**
+   * Refund a completed transaction via the provider's Payments API (Phase 10).
+   * References the actual PayPal capture id (never order/authorization ids).
+   * Idempotent: the same refund id can never credit the balance twice, and
+   * cumulative partial refunds cannot exceed the original amount.
+   */
+  async refundTransaction(
+    transactionId: string,
+    refundAmount?: Decimal
+  ): Promise<{ transaction: Transaction; refundId: string }> {
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+    });
+
+    if (!transaction) {
+      throw new Error('Transaction not found');
+    }
+
+    if (transaction.status !== TxStatus.COMPLETED) {
+      throw new Error('Cannot refund a non-completed transaction');
+    }
+
+    const amountToRefund = refundAmount || new Decimal(transaction.amount.toString());
+    if (amountToRefund.lessThanOrEqualTo(0)) {
+      throw new Error('Refund amount must be positive');
+    }
+    if (amountToRefund.greaterThan(new Decimal(transaction.amount.toString()))) {
+      throw new Error('Refund amount exceeds the original transaction amount');
+    }
+
+    // Determine capture ID for PayPal refund (never the order/authorization id)
+    const metadata = transaction.providerMetadata as any;
+    const captureId = metadata?.captureId || transaction.providerRefId;
+
+    if (!captureId) {
+      throw new Error('No provider capture reference found for refund');
+    }
+
+    // Call provider outside DB transaction (Phase 8 & 10). The provider uses
+    // a stable PayPal-Request-Id derived from capture id + amount, so a
+    // retried refund replays the same refund instead of paying twice.
+    const refundRes = await this.paymentProvider.refundPayment(
+      captureId,
+      refundAmount ? amountToRefund : undefined
+    );
+
+    if (!refundRes.success) {
+      throw new Error('Refund was rejected by provider');
+    }
+
+    const { transaction: refundTx } = await this.recordRefund(transaction, {
+      refundId: refundRes.refundId,
+      captureId,
+      amount: amountToRefund,
+    });
+
+    return {
+      transaction: refundTx,
+      refundId: refundRes.refundId,
+    };
+  }
+
+  /**
+   * Record a provider refund atomically: credit the sender balance exactly
+   * once per refund id, guarded by an advisory lock, an existing-refund check
+   * and an over-refund cap. Used by both the refund endpoint and the webhook
+   * reconciler.
+   */
+  private async recordRefund(
+    transaction: Transaction,
+    refund: { refundId: string; captureId: string; amount: Decimal; source?: string }
+  ): Promise<{ transaction: Transaction; transitioned: boolean }> {
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize concurrent refunds of the same original transaction.
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`tx-refund:${transaction.id}`}))`;
+
+      // Duplicate refund (retry or webhook replay): never credit twice.
+      const existing = await tx.transaction.findFirst({
+        where: { providerRefId: refund.refundId },
+      });
+      if (existing) {
+        return { transaction: existing, transitioned: false };
+      }
+
+      // Cap cumulative refunds at the original amount (partial refunds).
+      const previousRefunds = await tx.transaction.findMany({
+        where: {
+          fromAccountId: transaction.fromAccountId,
+          type: TxType.INBOUND,
+          description: { startsWith: `Refund for transaction ${transaction.id}` },
+        },
+      });
+      const alreadyRefunded = previousRefunds.reduce(
+        (sum, txr) => sum.plus(new Decimal(txr.amount.toString())),
+        new Decimal(0)
+      );
+      if (
+        alreadyRefunded.plus(refund.amount).greaterThan(new Decimal(transaction.amount.toString()))
+      ) {
+        throw new Error('Refund exceeds the original transaction amount');
+      }
+
+      const fromAccount = await tx.account.findUnique({
+        where: { id: transaction.fromAccountId },
+      });
+      if (fromAccount) {
+        const currentBalance = new Decimal(fromAccount.balance.toString());
+        await tx.account.update({
+          where: { id: fromAccount.id },
+          data: { balance: currentBalance.plus(refund.amount) },
+        });
+      }
+
+      const refundTx = await tx.transaction.create({
+        data: {
+          amount: refund.amount,
+          currency: transaction.currency,
+          type: TxType.INBOUND,
+          status: TxStatus.COMPLETED,
+          description: `Refund for transaction ${transaction.id}`,
+          fromAccountId: transaction.fromAccountId,
+          merchantName: transaction.merchantName,
+          providerName: transaction.providerName || 'paypal',
+          providerRefId: refund.refundId,
+          providerMetadata: {
+            originalTransactionId: transaction.id,
+            captureId: refund.captureId,
+            refundId: refund.refundId,
+            ...(refund.source ? { source: refund.source } : {}),
+          },
+        },
+      });
+
+      return { transaction: refundTx, transitioned: true };
+    });
+  }
+
+  /**
+   * Reconcile a verified PayPal webhook event into MoltMoney state (Phase 7).
+   * Never trusts unverified payloads: the webhook route only calls this after
+   * signature verification succeeded. Every state change is conditional so
+   * duplicate deliveries cannot double-apply.
+   */
+  async handleProviderWebhook(
+    event: WebhookEvent
+  ): Promise<{ status: 'processed' | 'already_processed' | 'ignored'; transactionId?: string }> {
+    const data: any = (event?.data as any) ?? {};
+    const resource: any = data.resource ?? {};
+
+    if (!data.category) {
+      return { status: 'ignored' };
+    }
+
+    switch (data.category) {
+      case 'order_approved': {
+        const transaction = await this.findTransactionForPayPalResource(resource);
+        if (!transaction) {
+          return { status: 'ignored' };
+        }
+        if (transaction.status !== TxStatus.PENDING) {
+          return { status: 'already_processed', transactionId: transaction.id };
+        }
+
+        const metadata: Record<string, any> = {
+          ...(typeof transaction.providerMetadata === 'object' && transaction.providerMetadata !== null
+            ? (transaction.providerMetadata as object)
+            : {}),
+          state: 'APPROVED',
+          approvedByPayerAt: new Date().toISOString(),
+        };
+        const update = await this.prisma.transaction.updateMany({
+          where: { id: transaction.id, status: TxStatus.PENDING },
+          data: { status: TxStatus.APPROVED, providerMetadata: metadata },
+        });
+
+        if (update.count === 1) {
+          if (this.webhookService) {
+            try {
+              await this.webhookService.deliverEvent(
+                WebhookEventType.PAYMENT_APPROVED,
+                {
+                  transactionId: transaction.id,
+                  orderId: transaction.providerRefId,
+                  amount: transaction.amount.toString(),
+                },
+                transaction.fromAccountId
+              );
+            } catch (error) {
+              console.error('Webhook delivery failed:', error);
+            }
+          }
+          return { status: 'processed', transactionId: transaction.id };
+        }
+        return { status: 'already_processed', transactionId: transaction.id };
+      }
+
+      case 'capture_completed': {
+        const transaction = await this.findTransactionForPayPalResource(resource);
+        if (!transaction) {
+          return { status: 'ignored' };
+        }
+        if (
+          transaction.status === TxStatus.COMPLETED ||
+          transaction.status === TxStatus.DECLINED ||
+          transaction.status === TxStatus.FAILED
+        ) {
+          return { status: 'already_processed', transactionId: transaction.id };
+        }
+
+        const captureId: string = resource.id || transaction.providerRefId || transaction.id;
+        const { transaction: completedTx, transitioned } =
+          await this.completeCapturedTransactionIdempotent(transaction, {
+            success: true,
+            transactionId: captureId,
+            captureId,
+          });
+        if (transitioned) {
+          await this.notifyPaymentCompleted(completedTx);
+        }
+        return {
+          status: transitioned ? 'processed' : 'already_processed',
+          transactionId: completedTx.id,
+        };
+      }
+
+      case 'capture_declined': {
+        const transaction = await this.findTransactionForPayPalResource(resource);
+        if (!transaction) {
+          return { status: 'ignored' };
+        }
+        if (
+          transaction.status === TxStatus.COMPLETED ||
+          transaction.status === TxStatus.DECLINED ||
+          transaction.status === TxStatus.FAILED
+        ) {
+          return { status: 'already_processed', transactionId: transaction.id };
+        }
+
+        const metadata: Record<string, any> = {
+          ...(typeof transaction.providerMetadata === 'object' && transaction.providerMetadata !== null
+            ? (transaction.providerMetadata as object)
+            : {}),
+          state: 'DECLINED',
+          declinedAt: new Date().toISOString(),
+        };
+        const update = await this.prisma.transaction.updateMany({
+          where: {
+            id: transaction.id,
+            status: { notIn: [TxStatus.COMPLETED, TxStatus.FAILED, TxStatus.DECLINED] },
+          },
+          data: { status: TxStatus.DECLINED, providerMetadata: metadata },
+        });
+
+        if (update.count === 1) {
+          if (this.webhookService) {
+            try {
+              await this.webhookService.deliverEvent(
+                WebhookEventType.PAYMENT_DECLINED,
+                {
+                  transactionId: transaction.id,
+                  amount: transaction.amount.toString(),
+                  type: transaction.type,
+                  fromAccountId: transaction.fromAccountId,
+                  reason: 'PayPal capture denied',
+                },
+                transaction.fromAccountId
+              );
+            } catch (error) {
+              console.error('Webhook delivery failed:', error);
+            }
+          }
+          return { status: 'processed', transactionId: transaction.id };
+        }
+        return { status: 'already_processed', transactionId: transaction.id };
+      }
+
+      case 'capture_refunded': {
+        const refundId: string | undefined = resource.id;
+        if (!refundId) {
+          return { status: 'ignored' };
+        }
+
+        // The refund resource links "up" to the capture: .../payments/captures/{id}
+        const upLink = Array.isArray(resource.links)
+          ? resource.links.find((l: any) => l?.rel === 'up' && typeof l.href === 'string')?.href
+          : undefined;
+        const captureId = upLink ? upLink.split('/').filter(Boolean).pop() : undefined;
+
+        let transaction: Transaction | null = null;
+        if (captureId) {
+          transaction = await this.findTransactionByCaptureId(captureId);
+        }
+        if (!transaction) {
+          transaction = await this.findTransactionForPayPalResource(resource);
+        }
+        if (!transaction || transaction.status !== TxStatus.COMPLETED) {
+          // Only reconcile refunds for ledger state we actually recorded.
+          return { status: 'ignored' };
+        }
+
+        const refundAmount = resource.amount?.value
+          ? new Decimal(resource.amount.value)
+          : new Decimal(transaction.amount.toString());
+
+        const { transaction: refundTx, transitioned } = await this.recordRefund(transaction, {
+          refundId,
+          captureId: captureId || transaction.providerRefId || '',
+          amount: refundAmount,
+          source: 'webhook',
+        });
+
+        if (transitioned && this.webhookService) {
+          try {
+            await this.webhookService.deliverEvent(
+              WebhookEventType.PAYMENT_REFUNDED,
+              {
+                transactionId: transaction.id,
+                refundTransactionId: refundTx.id,
+                refundId,
+                amount: refundAmount.toString(),
+              },
+              transaction.fromAccountId
+            );
+          } catch (error) {
+            console.error('Webhook delivery failed:', error);
+          }
+        }
+
+        return {
+          status: transitioned ? 'processed' : 'already_processed',
+          transactionId: transaction.id,
+        };
+      }
+
+      default:
+        return { status: 'ignored' };
+    }
   }
 }
