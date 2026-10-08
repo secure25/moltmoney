@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { AccountService } from '../services/account/account.service';
+import { buildSpendingPolicyResponse } from '../services/payment/spending-policy';
 import { requireOwner, requireOwnerOrAgent } from '../middleware/auth.middleware';
 import Decimal from 'decimal.js';
 
@@ -17,11 +18,27 @@ const fundAccountSchema = z.object({
   }, 'Amount must be greater than 0'),
 });
 
+const decimalStringOptional = z
+  .coerce
+  .string()
+  .regex(/^\d+(\.\d{1,2})?$/, 'Must be a valid amount with up to 2 decimal places')
+  .refine(
+    (val) => {
+      try {
+        return new Decimal(val).gt(0);
+      } catch {
+        return false;
+      }
+    },
+    { message: 'Must be greater than 0' }
+  )
+  .optional();
+
 const updateRulesSchema = z.object({
-  dailyLimit: z.string().optional(),
-  perTransactionLimit: z.string().optional(),
+  dailyLimit: decimalStringOptional,
+  perTransactionLimit: decimalStringOptional,
   blockedCategories: z.array(z.string()).optional(),
-  requireApprovalAbove: z.string().optional(),
+  requireApprovalAbove: decimalStringOptional,
   allowedMerchants: z.array(z.string()).optional(),
 });
 
@@ -167,6 +184,60 @@ export async function accountRoutes(server: FastifyInstance) {
         agentId: account.agentId,
         createdAt: account.createdAt,
       });
+    }
+  );
+
+  /**
+   * GET /accounts/:id/spending-policy - Authoritative spending-policy view.
+   * Returns the account's rules plus server-computed spentToday,
+   * remainingToday and serverTime so agents never have to derive daily
+   * usage themselves. spentToday uses the SAME shared aggregation as
+   * evaluateSpendingRules (services/payment/spending-policy.ts) — one
+   * definition of "spent today". Same authorization/scoping as
+   * GET /accounts/:id (owner of the agent, or the agent itself).
+   */
+  server.get(
+    '/accounts/:id/spending-policy',
+    {
+      preHandler: requireOwnerOrAgent,
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+      const user = (request as any).owner || (request as any).agent;
+
+      const account = await accountService.getAccount(id);
+
+      // Authorization check (identical to GET /accounts/:id)
+      if ((request as any).owner) {
+        // Owner must own the agent
+        const agent = await server.prisma.agent.findUnique({
+          where: { id: account.agentId! },
+        });
+        if (!agent || agent.ownerId !== user.id) {
+          return reply.status(403).send({
+            error: {
+              code: 'AUTHORIZATION_ERROR',
+              message: 'You do not have permission to access this account',
+              timestamp: new Date().toISOString(),
+            },
+          });
+        }
+      } else {
+        // Agent must own the account
+        if (account.agentId !== user.id) {
+          return reply.status(403).send({
+            error: {
+              code: 'AUTHORIZATION_ERROR',
+              message: 'You do not have permission to access this account',
+              timestamp: new Date().toISOString(),
+            },
+          });
+        }
+      }
+
+      const policy = await buildSpendingPolicyResponse(server.prisma, account);
+
+      return reply.send(policy);
     }
   );
 
