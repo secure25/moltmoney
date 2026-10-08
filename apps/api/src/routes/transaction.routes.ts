@@ -28,6 +28,16 @@ const exportTransactionsSchema = z.object({
   status: z.enum(['PENDING', 'APPROVED', 'COMPLETED', 'DECLINED', 'FAILED']).optional(),
 });
 
+// Public agent fields only. The raw apiKey is a credential: after creation it
+// must NEVER appear in any API response, so nested Agent objects in
+// transaction responses are selected down to these safe fields.
+const AGENT_PUBLIC_SELECT = {
+  id: true,
+  name: true,
+  platform: true,
+  createdAt: true,
+} as const;
+
 export async function transactionRoutes(server: FastifyInstance) {
   const transactionService = new TransactionService(server.prisma);
 
@@ -160,8 +170,12 @@ export async function transactionRoutes(server: FastifyInstance) {
           skip,
           take: pageSize,
           include: {
-            Account_Transaction_fromAccountIdToAccount: { include: { Agent: true } },
-            Account_Transaction_toAccountIdToAccount: { include: { Agent: true } },
+            Account_Transaction_fromAccountIdToAccount: {
+              include: { Agent: { select: AGENT_PUBLIC_SELECT } },
+            },
+            Account_Transaction_toAccountIdToAccount: {
+              include: { Agent: { select: AGENT_PUBLIC_SELECT } },
+            },
           },
         }),
         server.prisma.transaction.count({ where }),
