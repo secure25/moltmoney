@@ -2,7 +2,46 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PaymentRequestService } from '../services/payment-request/payment-request.service';
 import { requireAgent, requireOwner, requireOwnerOrAgent } from '../middleware/auth.middleware';
+import { AGENT_PUBLIC_INCLUDE } from '../services/agent/agent-public';
+import { errorResponse, DATE_TIME, decStr, str, nullable } from '../lib/serialize';
 import Decimal from 'decimal.js';
+
+/** Response schema for one payment-request row with its public agent context. */
+function paymentRequestItem() {
+  return {
+    type: 'object',
+    properties: {
+      id: str,
+      amount: decStr,
+      currency: str,
+      description: str,
+      status: str,
+      paymentLink: nullable(str),
+      fromAccountId: str,
+      toAccountId: nullable(str),
+      Account_PaymentRequest_fromAccountIdToAccount: nullable({
+        type: 'object',
+        properties: {
+          id: str,
+          agent: nullable({
+            type: 'object',
+            properties: {
+              id: str,
+              name: str,
+              platform: str,
+              createdAt: DATE_TIME,
+            },
+            required: ['id', 'name', 'platform', 'createdAt'],
+          }),
+        },
+        required: ['id'],
+      }),
+      expiresAt: DATE_TIME,
+      createdAt: DATE_TIME,
+    },
+    required: ['id', 'amount', 'currency', 'description', 'status', 'fromAccountId', 'expiresAt', 'createdAt'],
+  };
+}
 
 // Request schemas
 const createRequestSchema = z.object({
@@ -40,6 +79,13 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
     '/payments/request',
     {
       preHandler: requireAgent,
+      schema: {
+        response: {
+          201: paymentRequestItem(),
+          400: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = createRequestSchema.parse(request.body);
@@ -108,6 +154,16 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
     '/payments/request/:id/pay',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            request: { type: 'object', properties: { id: str, status: str }, required: ['id', 'status'] },
+            transaction: { type: 'object', properties: { id: str, amount: decStr, type: str, status: str }, required: ['id', 'amount', 'type', 'status'] },
+          }, required: ['request', 'transaction'] },
+          400: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -186,12 +242,22 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
     '/payments/request/:id/decline',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { id: str, status: str }, required: ['id', 'status'] },
+          400: errorResponse(),
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
       const user = (request as any).owner || (request as any).agent;
 
-      // Get payment request
+      // Get payment request. Full Agent is loaded for AUTHORIZATION
+      // (ownerId check); it is never serialized — the route's response
+      // schema (above) is the structural strip.
       const paymentRequest = await server.prisma.paymentRequest.findUnique({
         where: { id },
         include: {
@@ -272,12 +338,25 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
     '/payments/request/:id/approve',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            request: { type: 'object', properties: { id: str, status: str }, required: ['id', 'status'] },
+            transaction: { type: 'object', properties: { id: str, amount: decStr, status: str }, required: ['id', 'amount', 'status'] },
+          }, required: ['request', 'transaction'] },
+          400: errorResponse(),
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
       const owner = (request as any).owner;
 
-      // Get payment request
+      // Get payment request. Full Agent is loaded for AUTHORIZATION
+      // (ownerId check); it is never serialized — the route's response
+      // schema (above) is the structural strip.
       const paymentRequest = await server.prisma.paymentRequest.findUnique({
         where: { id },
         include: {
@@ -386,6 +465,11 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
     '/payments/requests',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { data: { type: 'array', items: paymentRequestItem() } }, required: ['data'] },
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { status } = request.query as { status?: string };
@@ -433,7 +517,7 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
         where,
         include: {
           Account_PaymentRequest_fromAccountIdToAccount: {
-            include: { Agent: true },
+            include: AGENT_PUBLIC_INCLUDE,
           },
         },
         orderBy: {
@@ -450,7 +534,7 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
           status: req.status,
           fromAccountId: req.fromAccountId,
           toAccountId: req.toAccountId,
-          Account_PaymentRequest_fromAccountIdToAccount: req.Account_PaymentRequest_fromAccountIdToAccount,
+          Account_PaymentRequest_fromAccountIdToAccount: { id: req.Account_PaymentRequest_fromAccountIdToAccount.id, agent: req.Account_PaymentRequest_fromAccountIdToAccount.Agent },
           expiresAt: req.expiresAt,
           createdAt: req.createdAt,
         })),
@@ -465,6 +549,19 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
    */
   server.post(
     '/payments/guest',
+    {
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            success: { type: 'boolean' },
+            transaction: { type: 'object', properties: { id: str, amount: decStr, currency: str, status: str }, required: ['id', 'amount', 'currency', 'status'] },
+            request: { type: 'object', properties: { id: str, status: str }, required: ['id', 'status'] },
+          }, required: ['success', 'transaction', 'request'] },
+          400: errorResponse(),
+          404: errorResponse(),
+        },
+      },
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = guestPaymentSchema.parse(request.body);
 

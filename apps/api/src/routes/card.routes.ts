@@ -1,9 +1,10 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { CardService } from '../services/card/card.service';
-import { MockPaymentProvider } from '../providers/mock-payment-provider';
+import { createCardIssuingProvider } from '../providers';
 import { createWebhookService } from '../services/webhook/webhook.service';
 import { requireOwner, requireOwnerOrAgent } from '../middleware/auth.middleware';
+import { errorResponse, DATE_TIME, decStr, str, nullable } from '../lib/serialize';
 import Decimal from 'decimal.js';
 
 // Request schemas
@@ -13,7 +14,7 @@ const issueCardSchema = z.object({
 });
 
 export async function cardRoutes(server: FastifyInstance) {
-  const paymentProvider = new MockPaymentProvider();
+  const paymentProvider = createCardIssuingProvider();
   const webhookService = createWebhookService(server.prisma);
   const encryptionSecret = process.env.CARD_ENCRYPTION_SECRET || 'development-secret-change-in-production';
   const cardService = new CardService(server.prisma, paymentProvider, encryptionSecret, webhookService);
@@ -26,6 +27,23 @@ export async function cardRoutes(server: FastifyInstance) {
     '/cards/virtual',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          201: { type: 'object', properties: {
+            // Card number/CVV are shown once at issue time (schema-declared, isolated)
+            id: str,
+            cardNumber: str,
+            expiryMonth: { type: 'integer' },
+            expiryYear: { type: 'integer' },
+            cvv: str,
+            status: str,
+            spendLimit: nullable(decStr),
+            accountId: str,
+            createdAt: DATE_TIME,
+          }, required: ['id', 'cardNumber', 'expiryMonth', 'expiryYear', 'cvv', 'status', 'accountId', 'createdAt'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = issueCardSchema.parse(request.body);
@@ -72,6 +90,26 @@ export async function cardRoutes(server: FastifyInstance) {
     '/cards',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            // CVV is deliberately excluded from list responses (existing behavior)
+            cards: { type: 'array', items: { type: 'object', properties: {
+              id: str,
+              cardNumber: str,
+              expiryMonth: { type: 'integer' },
+              expiryYear: { type: 'integer' },
+              status: str,
+              spendLimit: nullable(decStr),
+              accountId: str,
+              createdAt: DATE_TIME,
+            }, required: ['id', 'cardNumber', 'expiryMonth', 'expiryYear', 'status', 'accountId', 'createdAt'] } },
+          }, required: ['cards'] },
+          400: errorResponse(),
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { accountId } = request.query as { accountId: string };
@@ -152,6 +190,13 @@ export async function cardRoutes(server: FastifyInstance) {
     '/cards/:id/freeze',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { id: str, status: str }, required: ['id', 'status'] },
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -204,6 +249,13 @@ export async function cardRoutes(server: FastifyInstance) {
     '/cards/:id/unfreeze',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { id: str, status: str }, required: ['id', 'status'] },
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -256,6 +308,13 @@ export async function cardRoutes(server: FastifyInstance) {
     '/cards/:id/cancel',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { id: str, status: str }, required: ['id', 'status'] },
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };

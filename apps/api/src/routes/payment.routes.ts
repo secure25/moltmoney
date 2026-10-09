@@ -5,6 +5,7 @@ import { createPaymentProvider } from '../providers';
 import { createWebhookService } from '../services/webhook/webhook.service';
 import { requireAgent, requireOwner, requireOwnerOrAgent } from '../middleware/auth.middleware';
 import { ExternalBankAccountService } from '../services/external-bank-account/external-bank-account.service';
+import { errorResponse, DATE_TIME, decStr, str, nullable } from '../lib/serialize';
 import Decimal from 'decimal.js';
 
 // Request schemas
@@ -69,6 +70,17 @@ export async function paymentRoutes(server: FastifyInstance) {
     '/payments/send',
     {
       preHandler: requireAgent,
+      schema: {
+        response: {
+          201: { type: 'object', properties: {
+            transaction: { type: 'object', properties: {
+              id: str, amount: decStr, type: str, status: str, approvalRequired: { type: 'boolean' }, description: nullable(str), merchantName: nullable(str), createdAt: DATE_TIME,
+            }, required: ['id', 'amount', 'type', 'status', 'approvalRequired', 'createdAt'] },
+          }, required: ['transaction'] },
+          400: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = sendPaymentSchema.parse(request.body);
@@ -146,6 +158,17 @@ export async function paymentRoutes(server: FastifyInstance) {
     '/payments/approve/:id',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            transaction: { type: 'object', properties: {
+              id: str, amount: decStr, type: str, status: str, approvedAt: nullable(DATE_TIME),
+            }, required: ['id', 'amount', 'type', 'status'] },
+          }, required: ['transaction'] },
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -205,6 +228,17 @@ export async function paymentRoutes(server: FastifyInstance) {
     '/payments/decline/:id',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            transaction: { type: 'object', properties: {
+              id: str, amount: decStr, type: str, status: str,
+            }, required: ['id', 'amount', 'type', 'status'] },
+          }, required: ['transaction'] },
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -263,6 +297,17 @@ export async function paymentRoutes(server: FastifyInstance) {
     '/payments/payout',
     {
       preHandler: requireAgent,
+      schema: {
+        response: {
+          201: { type: 'object', properties: {
+            transaction: { type: 'object', properties: {
+              id: str, amount: decStr, type: str, status: str, description: nullable(str), recipientName: nullable(str), recipientAccount: str, approvalRequired: { type: 'boolean' }, createdAt: DATE_TIME,
+            }, required: ['id', 'amount', 'type', 'status', 'recipientAccount', 'approvalRequired', 'createdAt'] },
+          }, required: ['transaction'] },
+          400: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -359,6 +404,20 @@ export async function paymentRoutes(server: FastifyInstance) {
     '/payments/paypal/orders',
     {
       preHandler: requireAgent,
+      schema: {
+        response: {
+          201: { type: 'object', properties: {
+            transaction: { type: 'object', properties: {
+              id: str, amount: decStr, currency: str, type: str, status: str, approvalRequired: { type: 'boolean' }, providerName: nullable(str), providerRefId: nullable(str), createdAt: DATE_TIME,
+            }, required: ['id', 'amount', 'currency', 'type', 'status', 'approvalRequired', 'createdAt'] },
+            orderId: str,
+            approvalUrl: str,
+            state: str,
+          }, required: ['transaction', 'orderId', 'approvalUrl', 'state'] },
+          400: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = createPayPalOrderSchema.parse(request.body);
@@ -441,6 +500,19 @@ export async function paymentRoutes(server: FastifyInstance) {
     '/payments/paypal/orders/:orderId/capture',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            transaction: { type: 'object', properties: {
+              id: str, amount: decStr, type: str, status: str, providerName: nullable(str), providerRefId: nullable(str), createdAt: DATE_TIME,
+            }, required: ['id', 'amount', 'type', 'status', 'createdAt'] },
+          }, required: ['transaction'] },
+          400: errorResponse(),
+          403: errorResponse(),
+          404: errorResponse(),
+          409: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { orderId } = request.params as { orderId: string };
@@ -547,6 +619,19 @@ export async function paymentRoutes(server: FastifyInstance) {
     '/payments/transactions/:id/refund',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          201: { type: 'object', properties: {
+            refundId: str,
+            transaction: { type: 'object', properties: {
+              id: str, amount: decStr, currency: str, type: str, status: str, providerName: nullable(str), providerRefId: nullable(str), originalTransactionId: str, createdAt: DATE_TIME,
+            }, required: ['id', 'amount', 'currency', 'type', 'status', 'originalTransactionId', 'createdAt'] },
+          }, required: ['refundId', 'transaction'] },
+          400: errorResponse(),
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };

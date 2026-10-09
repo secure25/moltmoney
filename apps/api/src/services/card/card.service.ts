@@ -2,7 +2,7 @@ import { PrismaClient, VirtualCard, CardStatus, Account, AccountStatus } from '@
 import Decimal from 'decimal.js';
 import crypto from 'crypto';
 import { WebhookEventType } from '@moltmoney/shared';
-import { PaymentProvider } from '../../providers/payment-provider.interface';
+import { CardIssuingProvider } from '../../providers/payment-provider.interface';
 import { SpendingRules } from '../account/account.service';
 import { WebhookService } from '../webhook';
 
@@ -25,7 +25,7 @@ export class CardService {
 
   constructor(
     private prisma: PrismaClient,
-    private paymentProvider: PaymentProvider,
+    private paymentProvider: CardIssuingProvider,
     encryptionSecret: string,
     private webhookService?: WebhookService
   ) {

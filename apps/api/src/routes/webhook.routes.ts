@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { createWebhookService } from '../services/webhook/webhook.service';
 import { requireOwnerOrAgent } from '../middleware/auth.middleware';
+import { errorResponse, DATE_TIME, str } from '../lib/serialize';
 
 // Request schemas
 const registerWebhookSchema = z.object({
@@ -10,6 +11,8 @@ const registerWebhookSchema = z.object({
   events: z.array(z.enum([
     'payment.completed',
     'payment.declined',
+    'payment.approved',
+    'payment.refunded',
     'account.low_balance',
     'card.issued',
     'card.frozen',
@@ -27,6 +30,26 @@ export async function webhookRoutes(server: FastifyInstance) {
     '/webhooks/register',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          // Webhook.secret is deliberately schema-declared here: it is the
+          // one-time shared HMAC secret given to the caller at registration.
+          // The security suite walks every route schema and asserts that any
+          // credential-shaped property name appears ONLY on this documented
+          // show-once response.
+          201: { type: 'object', properties: {
+            id: str,
+            accountId: str,
+            url: str,
+            events: { type: 'array', items: str },
+            secret: str,
+            active: { type: 'boolean' },
+            createdAt: DATE_TIME,
+          }, required: ['id', 'accountId', 'url', 'events', 'secret', 'active', 'createdAt'] },
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = registerWebhookSchema.parse(request.body);

@@ -11,6 +11,20 @@ export interface ServerOptions {
   prisma: PrismaClient;
 }
 
+/**
+ * Live registry of every registered route and its response schema fragments.
+ * Populated by the onRoute hook below. Used by the security suite to walk
+ * ALL route schemas and assert no credential-shaped property is declared
+ * anywhere except the documented show-once responses — so a future route
+ * that forgets this discipline fails the test, not a user.
+ */
+export interface RegisteredRouteSchema {
+  method: string;
+  url: string;
+  responseSchemas: unknown[];
+}
+export const registeredRouteSchemas: RegisteredRouteSchema[] = [];
+
 export async function buildServer(options: ServerOptions): Promise<FastifyInstance> {
   const { logger = true, prisma } = options;
 
@@ -21,9 +35,26 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     } : false,
   });
 
+  // Keep the exact bytes PayPal signed available to the webhook route
+  // (Phase 7): parse JSON ourselves and stash the raw string on the request.
+  // Behavior for all other routes is unchanged (body still parsed as JSON).
+  server.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    (req as any).rawBody = body;
+    try {
+      done(null, body ? JSON.parse(body as string) : {});
+    } catch (err: any) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
   // Register CORS middleware
+  // CORS_ORIGIN accepts a single origin or a comma-separated list, so the
+  // dashboard can be served as both http://localhost:3001 and
+  // http://127.0.0.1:3001 without a restart dance between the two.
+  const corsOriginEnv = (process.env.CORS_ORIGIN || '*').split(',').map((o) => o.trim()).filter(Boolean);
   await server.register(cors, {
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: corsOriginEnv.length === 1 ? corsOriginEnv[0] : corsOriginEnv,
     credentials: true,
   });
 
@@ -111,6 +142,17 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
 
+  // Record every route's response schema for the security suite's walk.
+  server.addHook('onRoute', (route) => {
+    const response = (route.schema as any)?.response;
+    if (!response) return;
+    registeredRouteSchemas.push({
+      method: String(route.method),
+      url: route.url,
+      responseSchemas: Object.values(response),
+    });
+  });
+
   // Register routes
   const { authRoutes } = await import('./routes/auth.routes');
   const { accountRoutes } = await import('./routes/account.routes');
@@ -120,6 +162,8 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   const { transactionRoutes } = await import('./routes/transaction.routes');
   const { webhookRoutes } = await import('./routes/webhook.routes');
   const { externalAccountRoutes } = await import('./routes/external-account.routes');
+  const { paypalWebhookRoutes } = await import('./routes/paypal-webhook.routes');
+  const { paypalReturnRoutes } = await import('./routes/paypal-return.routes');
 
   await server.register(authRoutes);
   await server.register(accountRoutes);
@@ -129,6 +173,8 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   await server.register(transactionRoutes);
   await server.register(webhookRoutes);
   await server.register(externalAccountRoutes);
+  await server.register(paypalWebhookRoutes);
+  await server.register(paypalReturnRoutes);
 
   return server;
 }

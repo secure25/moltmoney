@@ -2,7 +2,33 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { TransactionService } from '../services/transaction/transaction.service';
 import { requireOwnerOrAgent } from '../middleware/auth.middleware';
+import { AGENT_PUBLIC_SELECT, toPublicAgent } from '../services/agent/agent-public';
+import { errorResponse, DATE_TIME, decStr, str, nullable, accountRow } from '../lib/serialize';
 import Decimal from 'decimal.js';
+
+/** Shared response schema for one serialized transaction row (list + detail). */
+function transactionItem() {
+  return {
+    type: 'object',
+    properties: {
+      id: str,
+      amount: decStr,
+      currency: str,
+      type: str,
+      status: str,
+      description: nullable(str),
+      merchantName: nullable(str),
+      fromAccountId: str,
+      toAccountId: nullable(str),
+      fromAccount: nullable(accountRow),
+      toAccount: nullable(accountRow),
+      approvalRequired: { type: 'boolean' },
+      approvedAt: nullable(DATE_TIME),
+      createdAt: DATE_TIME,
+    },
+    required: ['id', 'amount', 'currency', 'type', 'status', 'fromAccountId', 'approvalRequired', 'createdAt'],
+  };
+}
 
 // Query schemas
 const listTransactionsSchema = z.object({
@@ -28,15 +54,6 @@ const exportTransactionsSchema = z.object({
   status: z.enum(['PENDING', 'APPROVED', 'COMPLETED', 'DECLINED', 'FAILED']).optional(),
 });
 
-// Public agent fields only. The raw apiKey is a credential: after creation it
-// must NEVER appear in any API response, so nested Agent objects in
-// transaction responses are selected down to these safe fields.
-const AGENT_PUBLIC_SELECT = {
-  id: true,
-  name: true,
-  platform: true,
-  createdAt: true,
-} as const;
 
 export async function transactionRoutes(server: FastifyInstance) {
   const transactionService = new TransactionService(server.prisma);
@@ -49,6 +66,20 @@ export async function transactionRoutes(server: FastifyInstance) {
     '/transactions',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            data: { type: 'array', items: transactionItem() },
+            total: { type: 'integer' },
+            page: { type: 'integer' },
+            pageSize: { type: 'integer' },
+            hasMore: { type: 'boolean' },
+          }, required: ['data', 'total', 'page', 'pageSize', 'hasMore'] },
+          400: errorResponse(),
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const query = listTransactionsSchema.parse(request.query);
@@ -181,6 +212,13 @@ export async function transactionRoutes(server: FastifyInstance) {
         server.prisma.transaction.count({ where }),
       ]);
 
+      // Nested raw Account rows carry a Decimal balance, which
+      // fast-json-stringify rejects at nested depth — pre-stringify it and
+      // expose the agent through the public shape (toPublicAgent) so the
+      // raw row can be handed to the serializer safely.
+      const serializeAccount = (acct: any) =>
+        acct ? { ...acct, balance: acct.balance.toString(), agent: toPublicAgent(acct.Agent) } : null;
+
       return reply.send({
         data: transactions.map((tx) => ({
           id: tx.id,
@@ -192,8 +230,8 @@ export async function transactionRoutes(server: FastifyInstance) {
           merchantName: tx.merchantName,
           fromAccountId: tx.fromAccountId,
           toAccountId: tx.toAccountId,
-          fromAccount: tx.Account_Transaction_fromAccountIdToAccount,
-          toAccount: tx.Account_Transaction_toAccountIdToAccount,
+          fromAccount: serializeAccount(tx.Account_Transaction_fromAccountIdToAccount),
+          toAccount: serializeAccount(tx.Account_Transaction_toAccountIdToAccount),
           approvalRequired: tx.approvalRequired,
           approvedAt: tx.approvedAt,
           createdAt: tx.createdAt,
@@ -214,6 +252,12 @@ export async function transactionRoutes(server: FastifyInstance) {
     '/transactions/:id',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: transactionItem(),
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -318,6 +362,13 @@ export async function transactionRoutes(server: FastifyInstance) {
     '/transactions/export',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'string' },
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const query = exportTransactionsSchema.parse(request.query);

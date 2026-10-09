@@ -89,8 +89,11 @@ describe('Transaction routes - apiKey never exposed', () => {
     const parsed = JSON.parse(body);
     const tx = parsed.data.find((t: any) => t.id === txId);
     expect(tx).toBeTruthy();
-    expect(tx.fromAccount.Agent.apiKey).toBeUndefined();
-    expect(tx.fromAccount.Agent.name).toBe('TxSec Agent');
+    // The response schema strips everything but the declared public agent
+    // shape (lowercase `agent`); the raw `Agent` row cannot appear at all.
+    expect(tx.fromAccount.Agent).toBeUndefined();
+    expect(tx.fromAccount.agent.apiKey).toBeUndefined();
+    expect(tx.fromAccount.agent.name).toBe('TxSec Agent');
 
     // Functionality intact: the transaction fields are still present.
     expect(tx.amount).toBe('5');

@@ -2,8 +2,24 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { ExternalBankAccountService } from '../services/external-bank-account/external-bank-account.service';
 import { requireOwner } from '../middleware/auth.middleware';
+import { errorResponse, DATE_TIME, decStr, str } from '../lib/serialize';
 import Decimal from 'decimal.js';
 
+/** Masked external-account shape (account number shows last 4 only). */
+const maskedExternalAccount = {
+  type: 'object',
+  properties: {
+    id: str,
+    routingNumber: str,
+    accountNumber: str, // masked (****1234) by the handler
+    accountHolder: str,
+    accountType: str,
+    balance: decStr,
+    status: str,
+    createdAt: DATE_TIME, // declared optional: create doesn't return it, list does
+  },
+  required: ['id', 'routingNumber', 'accountNumber', 'accountHolder', 'accountType', 'balance', 'status'],
+} as const;
 // Request schemas
 const createMockAccountSchema = z.object({
   routingNumber: z.string().regex(/^[0-9]{9}$/, 'Routing number must be exactly 9 digits'),
@@ -30,6 +46,12 @@ export async function externalAccountRoutes(server: FastifyInstance) {
     '/external-accounts',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          201: maskedExternalAccount,
+          400: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = createMockAccountSchema.parse(request.body);
@@ -94,6 +116,12 @@ export async function externalAccountRoutes(server: FastifyInstance) {
     '/external-accounts',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { accounts: { type: 'array', items: maskedExternalAccount } }, required: ['accounts'] },
+          400: errorResponse(),
+        },
+      },
     },
     async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
@@ -139,6 +167,17 @@ export async function externalAccountRoutes(server: FastifyInstance) {
     '/external-accounts/:routingNumber/:accountNumber',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            exists: { type: 'boolean' },
+            accountHolder: str,
+            accountType: str,
+            status: str,
+          }, required: ['exists'] },
+          400: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { routingNumber, accountNumber } = request.params as {

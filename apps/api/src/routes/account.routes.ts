@@ -2,8 +2,29 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { AccountService } from '../services/account/account.service';
 import { buildSpendingPolicyResponse } from '../services/payment/spending-policy';
+import { toPublicAgent } from '../services/agent/agent-public';
 import { requireOwner, requireOwnerOrAgent } from '../middleware/auth.middleware';
+import {
+  errorResponse,
+  DATE_TIME,
+  decStr,
+  str,
+  nullable,
+  spendingRules,
+} from '../lib/serialize';
 import Decimal from 'decimal.js';
+
+/** Shared account summary shape for fund/freeze/unfreeze/close responses. */
+const accountStatus = (withBalance: boolean) => ({
+  type: 'object',
+  properties: {
+    id: str,
+    ...(withBalance ? { balance: decStr } : {}),
+    currency: nullable(str),
+    status: str,
+  },
+  required: withBalance ? ['id', 'balance', 'status'] : ['id', 'status'],
+});
 
 // Request schemas
 const createAccountSchema = z.object({
@@ -54,6 +75,21 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'array', items: {
+            type: 'object',
+            properties: {
+              id: str,
+              balance: decStr,
+              currency: str,
+              status: str,
+              agent: { type: 'object', properties: { id: str, name: str, platform: str }, required: ['id', 'name', 'platform'] },
+            },
+            required: ['id', 'balance', 'currency', 'status', 'agent'],
+          } },
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const owner = (request as any).owner;
@@ -73,11 +109,7 @@ export async function accountRoutes(server: FastifyInstance) {
           balance: agent.Account!.balance.toString(),
           currency: agent.Account!.currency,
           status: agent.Account!.status,
-          agent: {
-            id: agent.id,
-            name: agent.name,
-            platform: agent.platform,
-          },
+          agent: toPublicAgent(agent),
         }));
 
       return reply.send(accounts);
@@ -92,6 +124,27 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          201: { type: 'object', properties: {
+            // The PLAIN apiKey is intentionally declared here: this is its
+            // single show-once appearance. The serializer guarantees it can
+            // never appear on any other route — which is the invariant 
+            // enforced by the security suite + schema walk.
+            agent: { type: 'object', properties: {
+              id: str, name: str, platform: str, apiKey: str,
+            }, required: ['id', 'name', 'platform', 'apiKey'] },
+            account: { type: 'object', properties: {
+              id: str, accountNumber: str, balance: decStr, currency: str, status: str,
+            }, required: ['id', 'accountNumber', 'balance', 'currency', 'status'] },
+            virtualCard: nullable({ type: 'object', properties: {
+              id: str, cardNumber: str, cvv: str, expiryMonth: { type: 'integer' }, expiryYear: { type: 'integer' }, status: str,
+            }, required: ['id', 'cardNumber', 'cvv', 'expiryMonth', 'expiryYear', 'status'] }),
+            message: str,
+          }, required: ['agent', 'account', 'message'] },
+          400: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = createAccountSchema.parse(request.body);
@@ -138,6 +191,22 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts/:id',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            id: str,
+            type: str,
+            balance: decStr,
+            currency: str,
+            status: str,
+            spendingRules: nullable(spendingRules),
+            accountNumber: nullable(str),
+            agentId: nullable(str),
+            createdAt: DATE_TIME,
+          }, required: ['id', 'type', 'balance', 'currency', 'status', 'createdAt'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -200,6 +269,19 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts/:id/spending-policy',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            accountId: str,
+            currency: str,
+            rules: nullable(spendingRules),
+            spentToday: decStr,
+            remainingToday: nullable(decStr),
+            serverTime: DATE_TIME,
+          }, required: ['accountId', 'currency', 'rules', 'spentToday', 'remainingToday', 'serverTime'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -249,6 +331,17 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts/:id/balance',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            accountId: str,
+            balance: decStr,
+            currency: str,
+            status: str,
+          }, required: ['accountId', 'balance', 'currency', 'status'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -301,6 +394,14 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts/:id/rules',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            account: { type: 'object', properties: { id: str, spendingRules: nullable(spendingRules) }, required: ['id', 'spendingRules'] },
+          }, required: ['account'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -350,6 +451,12 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts/:id/freeze',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { account: accountStatus(false) }, required: ['account'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -390,6 +497,12 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts/:id/unfreeze',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { account: accountStatus(false) }, required: ['account'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -430,6 +543,12 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts/:id/close',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: { account: accountStatus(false) }, required: ['account'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
@@ -470,6 +589,17 @@ export async function accountRoutes(server: FastifyInstance) {
     '/accounts/:id/fund',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: { type: 'object', properties: {
+            account: accountStatus(true),
+            transaction: { type: 'object', properties: {
+              id: str, amount: decStr, type: str, status: str,
+            }, required: ['id', 'amount', 'type', 'status'] },
+          }, required: ['account', 'transaction'] },
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
