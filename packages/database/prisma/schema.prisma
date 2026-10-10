@@ -128,6 +128,23 @@ model ProviderWebhookEvent {
   @@index([processedAt])
 }
 
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorType  String
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([action])
+  @@index([actorType, actorId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
 model VirtualCard {
   id          String     @id @default(uuid())
   cardNumber  String     @unique

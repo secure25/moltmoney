@@ -51,11 +51,24 @@ export interface Transaction {
   status: TxStatus;
   description: string | null;
   merchantName: string | null;
+  merchantCategory?: string | null;
   fromAccountId: string;
   toAccountId: string | null;
   approvalRequired: boolean;
   approvedAt: Date | null;
+  providerName?: string | null;
+  providerRefId?: string | null;
+  providerMetadata?: any | null;
   createdAt: Date;
+}
+
+export interface ProviderWebhookEvent {
+  id: string;
+  provider: string;
+  transmissionId: string;
+  eventType: string;
+  payload: any;
+  processedAt: Date;
 }
 
 export interface PaymentRequest {

@@ -43,6 +43,8 @@ export enum CardStatus {
 export enum WebhookEventType {
   PAYMENT_COMPLETED = 'payment.completed',
   PAYMENT_DECLINED = 'payment.declined',
+  PAYMENT_APPROVED = 'payment.approved',
+  PAYMENT_REFUNDED = 'payment.refunded',
   LOW_BALANCE = 'account.low_balance',
   CARD_ISSUED = 'card.issued',
   CARD_FROZEN = 'card.frozen',
