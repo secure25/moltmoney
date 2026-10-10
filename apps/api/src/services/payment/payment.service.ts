@@ -159,6 +159,29 @@ export class PaymentService {
       throw new Error('Cannot send payment to self');
     }
 
+    /**
+     * RULE-PARITY NOTE (vs the PayPal checkout flow):
+     *
+     * sendPayment is a SINGLE-STEP operation — unlike the PayPal order
+     * lifecycle (createCheckoutOrder → owner approval → captureCheckoutOrder),
+     * there is no separate "creation" and "execution" phase. The sender
+     * account is fetched fresh below and rules are evaluated NOW, so the
+     * per-transaction limit, daily limit (via the live getSpentToday
+     * aggregation) and approval threshold are always checked against the
+     * account's CURRENT rules at execution time — capture-time-style re-checks
+     * are unnecessary by construction.
+     *
+     * BLOCKED CATEGORIES ARE N/A FOR INTERNAL TRANSFERS: an internal send
+     * (and a merchant-less external send) has no merchant and therefore no
+     * merchantCategory to classify. A missing category here is ALLOWED even
+     * when the account configures blockedCategories — this is a deliberate
+     * policy decision, NOT a parity gap. (Only the PayPal checkout path
+     * fail-closes on a missing category, because a real purchase must declare
+     * what it is before a prohibited one can be ruled out.) If a caller DOES
+     * pass a merchantCategory that is blocked, evaluateSpendingRules still
+     * hard-rejects the send — see payment.service.category.test.ts.
+     */
+
     // Determine transaction type
     let txType: TxType;
     let toAccount: Account | null = null;
@@ -190,7 +213,8 @@ export class PaymentService {
       throw new Error('Insufficient balance');
     }
 
-    // Evaluate spending rules (Requirement 5.2, 6.2)
+    // Evaluate spending rules (Requirement 5.2, 6.2) against the just-fetched
+    // (i.e. current) rules — see the rule-parity note above.
     const ruleEvaluation = await this.evaluateSpendingRules(
       fromAccount,
       amount,

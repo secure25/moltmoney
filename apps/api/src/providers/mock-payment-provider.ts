@@ -1,12 +1,14 @@
 import Decimal from 'decimal.js';
 import crypto from 'crypto';
 import {
-  PaymentProvider,
+  CardIssuingProvider,
   CardDetails,
   AuthorizationResponse,
   CaptureResponse,
   RefundResponse,
   WebhookEvent,
+  CreateOrderParams,
+  CreateOrderResponse,
 } from './payment-provider.interface';
 import { WebhookEventType } from '@moltmoney/shared';
 
@@ -14,11 +16,30 @@ import { WebhookEventType } from '@moltmoney/shared';
  * Mock payment provider that simulates real card issuer functionality
  * for development and testing purposes
  */
-export class MockPaymentProvider implements PaymentProvider {
+export class MockPaymentProvider implements CardIssuingProvider {
   // In-memory storage for simulated transactions
   private authorizations = new Map<string, AuthorizationResponse>();
   private captures = new Map<string, CaptureResponse>();
   private refunds = new Map<string, RefundResponse>();
+  // Checkout orders created via createOrder, and their capture results, so
+  // the mock mirrors PayPal's order -> capture semantics.
+  private orders = new Map<string, CreateOrderResponse>();
+  private orderCaptures = new Map<string, CaptureResponse>();
+
+  /**
+   * Create a simulated checkout order
+   */
+  async createOrder(_params: CreateOrderParams): Promise<CreateOrderResponse> {
+    await this.simulateDelay();
+    const orderId = `MOCK-ORDER-${crypto.randomUUID()}`;
+    const response: CreateOrderResponse = {
+      orderId,
+      status: 'CREATED',
+      approvalUrl: `https://sandbox.paypal.com/checkoutnow?token=${orderId}`,
+    };
+    this.orders.set(orderId, response);
+    return response;
+  }
 
   /**
    * Generate a card number that passes the Luhn algorithm check
@@ -175,7 +196,25 @@ export class MockPaymentProvider implements PaymentProvider {
   async capturePayment(authorizationId: string): Promise<CaptureResponse> {
     await this.simulateDelay();
 
-    // Verify authorization exists
+    // Checkout order capture (createOrder -> capture), mirroring PayPal.
+    // Idempotent: recapturing the same order returns the same capture.
+    const existingOrderCapture = this.orderCaptures.get(authorizationId);
+    if (existingOrderCapture) {
+      return existingOrderCapture;
+    }
+    if (this.orders.has(authorizationId)) {
+      const transactionId = crypto.randomUUID();
+      const response: CaptureResponse = {
+        success: true,
+        transactionId,
+        captureId: transactionId,
+      };
+      this.orderCaptures.set(authorizationId, response);
+      this.captures.set(transactionId, response);
+      return response;
+    }
+
+    // Legacy card-authorization capture flow
     const authorization = this.authorizations.get(authorizationId);
     if (!authorization) {
       throw new Error('Authorization not found');
@@ -202,7 +241,7 @@ export class MockPaymentProvider implements PaymentProvider {
    */
   async refundPayment(
     transactionId: string,
-    _amount: Decimal
+    _amount?: Decimal
   ): Promise<RefundResponse> {
     await this.simulateDelay();
 
@@ -268,5 +307,7 @@ export class MockPaymentProvider implements PaymentProvider {
     this.authorizations.clear();
     this.captures.clear();
     this.refunds.clear();
+    this.orders.clear();
+    this.orderCaptures.clear();
   }
 }

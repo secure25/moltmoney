@@ -33,6 +33,7 @@ describe('PaymentService', () => {
 
   afterEach(async () => {
     // Clean up test data in correct order (virtual cards before accounts)
+    await prisma.paymentRequest.deleteMany({});
     await prisma.webhookEvent.deleteMany({});
     await prisma.webhook.deleteMany({});
     await prisma.transaction.deleteMany({});

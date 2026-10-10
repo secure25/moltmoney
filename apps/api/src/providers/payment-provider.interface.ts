@@ -12,6 +12,28 @@ export interface CardDetails {
 }
 
 /**
+ * Parameters for creating a checkout order
+ */
+export interface CreateOrderParams {
+  amount: Decimal;
+  currency?: string;
+  description?: string;
+  merchantName?: string;
+  referenceId: string;
+  returnUrl?: string;
+  cancelUrl?: string;
+}
+
+/**
+ * Response from creating a checkout order
+ */
+export interface CreateOrderResponse {
+  orderId: string;
+  status: string;
+  approvalUrl?: string;
+}
+
+/**
  * Response from payment authorization
  */
 export interface AuthorizationResponse {
@@ -28,6 +50,7 @@ export interface AuthorizationResponse {
 export interface CaptureResponse {
   success: boolean;
   transactionId: string;
+  captureId?: string;
 }
 
 /**
@@ -53,11 +76,11 @@ export interface WebhookEvent {
  */
 export interface PaymentProvider {
   /**
-   * Issue a virtual card for an account
-   * @param accountId - The account ID to issue the card for
-   * @returns Card details including number, expiry, and CVV
+   * Create an order for buyer approval (Checkout / Agentic commerce flow)
+   * @param params - Order parameters
+   * @returns Order response with approval URL
    */
-  issueVirtualCard(accountId: string): Promise<CardDetails>;
+  createOrder?(params: CreateOrderParams): Promise<CreateOrderResponse>;
 
   /**
    * Authorize a payment
@@ -75,25 +98,39 @@ export interface PaymentProvider {
   ): Promise<AuthorizationResponse>;
 
   /**
-   * Capture a previously authorized payment
-   * @param authorizationId - The authorization ID to capture
+   * Capture a previously authorized payment or approved order
+   * @param authorizationId - The authorization ID or order ID to capture
    * @returns Capture response with transaction ID
    */
   capturePayment(authorizationId: string): Promise<CaptureResponse>;
 
   /**
    * Refund a completed payment
-   * @param transactionId - The transaction ID to refund
-   * @param amount - The refund amount
+   * @param transactionId - The transaction/capture ID to refund
+   * @param amount - The refund amount; omit for a full refund
    * @returns Refund response with refund ID
    */
-  refundPayment(transactionId: string, amount: Decimal): Promise<RefundResponse>;
+  refundPayment(transactionId: string, amount?: Decimal): Promise<RefundResponse>;
 
   /**
    * Parse and verify a webhook payload
    * @param payload - The webhook payload as a string
-   * @param signature - The webhook signature for verification
+   * @param signature - The webhook signature or header context for verification
    * @returns Parsed webhook event
    */
-  parseWebhook(payload: string, signature: string): Promise<WebhookEvent>;
+  parseWebhook(payload: string, signature: string | Record<string, any>): Promise<WebhookEvent>;
 }
+
+/**
+ * Card issuing provider interface
+ * Extends PaymentProvider to add virtual card issuance capability
+ */
+export interface CardIssuingProvider extends PaymentProvider {
+  /**
+   * Issue a virtual card for an account
+   * @param accountId - The account ID to issue the card for
+   * @returns Card details including number, expiry, and CVV
+   */
+  issueVirtualCard(accountId: string): Promise<CardDetails>;
+}
+

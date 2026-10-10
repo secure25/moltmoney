@@ -52,6 +52,7 @@ describe('PaymentService - blocked category hard prohibition', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    await prisma.paymentRequest.deleteMany({});
     await prisma.webhookEvent.deleteMany({});
     await prisma.webhook.deleteMany({});
     await prisma.providerWebhookEvent.deleteMany({});
