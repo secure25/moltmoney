@@ -1,4 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { MONEY_RATE_LIMIT_CONFIG } from '../lib/rate-limit-config';
+import { AuditService, AUDIT_ACTION, actorFromRequest } from '../services/audit/audit.service';
+
 import { z } from 'zod';
 import { PaymentService } from '../services/payment/payment.service';
 import { createPaymentProvider } from '../providers';
@@ -69,6 +72,8 @@ export async function paymentRoutes(server: FastifyInstance) {
   server.post(
     '/payments/send',
     {
+      // Strict tier: API-key-authenticated money movement.
+      config: { rateLimit: MONEY_RATE_LIMIT_CONFIG },
       preHandler: requireAgent,
       schema: {
         response: {
@@ -134,6 +139,20 @@ export async function paymentRoutes(server: FastifyInstance) {
         body.merchantName || (body.toAccountId && !resolvedToAccountId ? body.toAccountId : undefined),
         body.merchantCategory
       );
+
+      // Audit: money movement (internal send).
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.PAYMENT_SENT,
+        targetType: 'Transaction',
+        targetId: transaction.id,
+        metadata: {
+          amount: transaction.amount.toString(),
+          currency: transaction.currency,
+          toAccountId: resolvedToAccountId,
+          approvalRequired: transaction.approvalRequired,
+        },
+      });
 
       return reply.status(201).send({
         transaction: {
@@ -208,6 +227,15 @@ export async function paymentRoutes(server: FastifyInstance) {
 
       const approvedTransaction = await paymentService.approvePayment(id, owner.id);
 
+      // Audit: owner approval decision (security-relevant control action).
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.PAYMENT_APPROVED,
+        targetType: 'Transaction',
+        targetId: approvedTransaction.id,
+        metadata: { amount: approvedTransaction.amount.toString(), currency: approvedTransaction.currency },
+      });
+
       return reply.send({
         transaction: {
           id: approvedTransaction.id,
@@ -278,6 +306,15 @@ export async function paymentRoutes(server: FastifyInstance) {
 
       const declinedTransaction = await paymentService.declinePayment(id, owner.id);
 
+      // Audit: owner decline decision.
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.PAYMENT_DECLINED,
+        targetType: 'Transaction',
+        targetId: declinedTransaction.id,
+        metadata: { amount: declinedTransaction.amount.toString(), currency: declinedTransaction.currency },
+      });
+
       return reply.send({
         transaction: {
           id: declinedTransaction.id,
@@ -296,6 +333,8 @@ export async function paymentRoutes(server: FastifyInstance) {
   server.post(
     '/payments/payout',
     {
+      // Strict tier: API-key-authenticated money movement.
+      config: { rateLimit: MONEY_RATE_LIMIT_CONFIG },
       preHandler: requireAgent,
       schema: {
         response: {
@@ -339,6 +378,24 @@ export async function paymentRoutes(server: FastifyInstance) {
           amount,
           body.description
         );
+
+        // Audit: payout to external bank account.
+        // NEVER log the full routing/account numbers — only the same masked
+        // form the API response uses (****last4).
+        await new AuditService(server.prisma).record({
+          ...actorFromRequest(request),
+          action: AUDIT_ACTION.PAYMENT_SENT,
+          targetType: 'Transaction',
+          targetId: transaction.id,
+          metadata: {
+            kind: 'payout',
+            amount: transaction.amount.toString(),
+            currency: transaction.currency,
+            recipientAccount: `****${body.accountNumber.slice(-4)}`,
+            recipientName: transaction.merchantName,
+            approvalRequired: transaction.approvalRequired,
+          },
+        });
 
         return reply.status(201).send({
           transaction: {
@@ -403,6 +460,8 @@ export async function paymentRoutes(server: FastifyInstance) {
   server.post(
     '/payments/paypal/orders',
     {
+      // Strict tier: API-key-authenticated money movement.
+      config: { rateLimit: MONEY_RATE_LIMIT_CONFIG },
       preHandler: requireAgent,
       schema: {
         response: {
@@ -449,6 +508,21 @@ export async function paymentRoutes(server: FastifyInstance) {
             cancelUrl: body.cancelUrl,
           }
         );
+
+        // Audit: PayPal order creation (money-movement intent).
+        await new AuditService(server.prisma).record({
+          ...actorFromRequest(request),
+          action: AUDIT_ACTION.ORDER_CREATED,
+          targetType: 'Transaction',
+          targetId: transaction.id,
+          metadata: {
+            amount: transaction.amount.toString(),
+            currency: transaction.currency,
+            orderId,
+            merchantName: body.merchantName,
+            merchantCategory: body.merchantCategory,
+          },
+        });
 
         return reply.status(201).send({
           transaction: {
@@ -499,6 +573,8 @@ export async function paymentRoutes(server: FastifyInstance) {
   server.post(
     '/payments/paypal/orders/:orderId/capture',
     {
+      // Strict tier: API-key-authenticated money movement.
+      config: { rateLimit: MONEY_RATE_LIMIT_CONFIG },
       preHandler: requireOwnerOrAgent,
       schema: {
         response: {
@@ -566,6 +642,20 @@ export async function paymentRoutes(server: FastifyInstance) {
 
       try {
         const completedTx = await paymentService.captureCheckoutOrder(orderId);
+
+        // Audit: capture is the moment funds actually move provider-side.
+        await new AuditService(server.prisma).record({
+          ...actorFromRequest(request),
+          action: AUDIT_ACTION.ORDER_CAPTURED,
+          targetType: 'Transaction',
+          targetId: completedTx.id,
+          metadata: {
+            amount: completedTx.amount.toString(),
+            currency: completedTx.currency,
+            orderId: completedTx.providerRefId,
+            status: completedTx.status,
+          },
+        });
 
         return reply.send({
           transaction: {

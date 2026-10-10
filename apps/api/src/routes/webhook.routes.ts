@@ -120,6 +120,14 @@ export async function webhookRoutes(server: FastifyInstance) {
     '/webhooks/:id',
     {
       preHandler: requireOwnerOrAgent,
+      schema: {
+        response: {
+          204: { type: 'null' },
+          401: errorResponse(),
+          403: errorResponse(),
+          404: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };

@@ -1,10 +1,12 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
+import rateLimit from '@fastify/rate-limit';
 import { PrismaClient } from '@moltmoney/database';
 import { ZodError } from 'zod';
 import { AppError } from '@moltmoney/shared';
 import { WebSocketServer } from './websocket';
+import { RATE_LIMIT_OPTIONS } from './lib/rate-limit-config';
 
 export interface ServerOptions {
   logger?: boolean;
@@ -60,6 +62,13 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
 
   // Register WebSocket support
   await server.register(websocket);
+
+  // Global (loose) rate limiter. Stricter, per-route limits are applied via
+  // the { config: { rateLimit: ... } } route option on sensitive endpoints —
+  // see lib/rate-limit-config.ts. 429s carry Retry-After; the env knobs are
+  // documented in apps/api/.env.example. In the test environment the limits
+  // widen so the ~400-test suite never trips them by accident.
+  await server.register(rateLimit, RATE_LIMIT_OPTIONS);
 
   // Attach Prisma client to server instance for use in routes
   server.decorate('prisma', prisma);
@@ -138,18 +147,32 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   });
 
   // Health check endpoint
-  server.get('/health', async () => {
+  server.get('/health', {
+    schema: {
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            timestamp: { type: 'string', format: 'date-time' },
+          },
+          required: ['status', 'timestamp'],
+        },
+      },
+    },
+  }, async () => {
     return { status: 'ok', timestamp: new Date().toISOString() };
   });
 
-  // Record every route's response schema for the security suite's walk.
+  // Record EVERY route (including ones without a response schema) for the
+  // security suite's walks: the credential sweep only inspects declared
+  // schemas, while the guardrail test asserts none were forgotten.
   server.addHook('onRoute', (route) => {
     const response = (route.schema as any)?.response;
-    if (!response) return;
     registeredRouteSchemas.push({
       method: String(route.method),
       url: route.url,
-      responseSchemas: Object.values(response),
+      responseSchemas: response ? Object.values(response) : [],
     });
   });
 
@@ -164,6 +187,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   const { externalAccountRoutes } = await import('./routes/external-account.routes');
   const { paypalWebhookRoutes } = await import('./routes/paypal-webhook.routes');
   const { paypalReturnRoutes } = await import('./routes/paypal-return.routes');
+  const { auditRoutes } = await import('./routes/audit.routes');
 
   await server.register(authRoutes);
   await server.register(accountRoutes);
@@ -175,6 +199,7 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
   await server.register(externalAccountRoutes);
   await server.register(paypalWebhookRoutes);
   await server.register(paypalReturnRoutes);
+  await server.register(auditRoutes);
 
   return server;
 }
