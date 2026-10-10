@@ -14,14 +14,18 @@ moltmoney/
 ├── packages/
 │   ├── database/     # Prisma ORM and database layer
 │   └── shared/       # Shared types and utilities
+└── scripts/
+    └── db.mjs        # Local PostgreSQL manager (no Docker needed)
 ```
 
 ## Prerequisites
 
 - Node.js 20+
 - npm 10+
-- Docker and Docker Compose
-- PostgreSQL 15+ (via Docker)
+
+**No Docker required.** PostgreSQL binaries are installed automatically via the
+`embedded-postgres` npm package, and `npm run db:up` starts a real local
+PostgreSQL server from them.
 
 ## Getting Started
 
@@ -31,11 +35,18 @@ moltmoney/
 npm install
 ```
 
-### 2. Start PostgreSQL Database
+### 2. Start the Local PostgreSQL Database
 
 ```bash
-npm run docker:up
+npm run db:up
 ```
+
+This initialises a data directory at `.pgdata/` (gitignored), starts PostgreSQL
+on **localhost:54329** (so it never clashes with a system Postgres), and creates
+the `moltmoney` database. Local auth is `trust`, meaning any password in the
+connection URL is accepted — fine for local development only.
+
+Stop it any time with `npm run db:down`; check it with `npm run db:status`.
 
 ### 3. Set Up Environment Variables
 
@@ -44,7 +55,10 @@ Copy the example environment files:
 ```bash
 cp apps/api/.env.example apps/api/.env
 cp apps/dashboard/.env.example apps/dashboard/.env
+cp packages/database/.env.example packages/database/.env
 ```
+
+The defaults in these templates match the database started in step 2.
 
 ### 4. Generate Prisma Client
 
@@ -52,11 +66,14 @@ cp apps/dashboard/.env.example apps/dashboard/.env
 npm run db:generate
 ```
 
-### 5. Run Database Migrations
+### 5. Apply Database Migrations
 
 ```bash
-npm run db:migrate
+npm run db:migrate:deploy
 ```
+
+This applies all existing migrations non-interactively. (To create a *new*
+migration while iterating on the schema, use `npm run db:migrate`.)
 
 ### 6. Start Development Servers
 
@@ -72,21 +89,39 @@ This will start:
 
 - `npm run dev` - Start all apps in development mode
 - `npm run build` - Build all apps and packages
-- `npm run test` - Run tests across all packages
+- `npm run test` - Run tests across all packages (uses the local database)
 - `npm run lint` - Lint all code
 - `npm run format` - Format code with Prettier
-- `npm run docker:up` - Start PostgreSQL container
-- `npm run docker:down` - Stop PostgreSQL container
+- `npm run db:up` - Start the embedded local PostgreSQL (no Docker)
+- `npm run db:down` - Stop the embedded local PostgreSQL
+- `npm run db:status` - Check whether the local PostgreSQL is running
+- `npm run db:reset` - Stop the database and wipe its data directory
 - `npm run db:generate` - Generate Prisma client
-- `npm run db:migrate` - Run database migrations
+- `npm run db:migrate` - Run interactive migrations (schema development)
+- `npm run db:migrate:deploy` - Apply existing migrations (local setup, CI)
 - `npm run db:studio` - Open Prisma Studio
+- `npm run docker:up` / `docker:down` - Alternative: PostgreSQL via Docker Compose
+
+## Running Tests Without Docker
+
+The test suite (Vitest) talks to a real PostgreSQL database through
+`DATABASE_URL`. With the embedded database this is fully local:
+
+```bash
+npm run db:up
+npm run db:migrate:deploy   # first run only
+npm run test
+```
+
+Tests clean up their data after each run, so the database stays usable for
+development afterwards.
 
 ## Technology Stack
 
 ### Backend
 - **Framework**: Fastify
 - **Language**: TypeScript (strict mode)
-- **Database**: PostgreSQL 15
+- **Database**: PostgreSQL (local via `embedded-postgres`, or Docker)
 - **ORM**: Prisma
 - **Authentication**: JWT (owners) + API Keys (agents)
 - **Real-time**: WebSocket
@@ -125,16 +160,21 @@ The platform consists of three main components:
 npm run db:studio
 ```
 
-### Create Migration
+### Reset Database (destroys local data)
 ```bash
-npm run db:migrate
+npm run db:reset
+npm run db:up
+npm run db:migrate:deploy
 ```
 
-### Reset Database
+### Docker alternative
+
+If you prefer Docker for PostgreSQL:
+
 ```bash
-docker-compose down -v
 docker-compose up -d
-npm run db:migrate
+# point DATABASE_URL at postgresql://moltmoney:moltmoney_dev_password@localhost:5432/moltmoney
+npm run db:migrate:deploy
 ```
 
 ## License
