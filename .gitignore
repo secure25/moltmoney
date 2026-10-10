@@ -24,6 +24,10 @@ yarn-error.log*
 .env
 .env*.local
 
+# Embedded local Postgres data (npm run db:up)
+.pgdata/
+npm-install.log
+
 # Turbo
 .turbo
 
@@ -35,3 +39,22 @@ yarn-error.log*
 .idea
 *.swp
 *.swo
+dashboard-creds.json
+api-smoke.log
+dash-smoke.log
+
+# Local agent/scratch session artifacts (never commit)
+.api-server.log
+.api-server-smoke.log
+.audit-smoke.json
+.dashboard-smoke.log
+dashboard-dev.log
+tsc-check.log
+smoke-contract.ts
+apps/api/api-smoke.log
+npm-install.log
+.freebuff-logs/
+.freebuff/
+.mimosa/
+.v2c/
+.audit-smoke/
