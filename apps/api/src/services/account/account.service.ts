@@ -57,6 +57,8 @@ export class AccountService {
     const accountNumber = `MOLT-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
     // Create Agent and Account atomically in a transaction
+    // (10s explicit timeout: this machine's DB flaked at Prisma's 5s default
+    // under parallel suite load; see fundAccount for rationale).
     const result = await this.prisma.$transaction(async (tx) => {
       // Create Agent
       const agent = await tx.agent.create({
@@ -99,7 +101,7 @@ export class AccountService {
       });
 
       return { agent, account, virtualCard, plainCardNumber: cardNumber };
-    });
+    }, { timeout: 10_000 });
 
     // Return agent with plain API key (only time it's visible)
     return {
@@ -276,7 +278,9 @@ export class AccountService {
     // Verify account exists
     const account = await this.getAccount(accountId);
 
-    // Use transaction to ensure atomicity
+    // Use transaction to ensure atomicity. The 10s explicit timeout is the
+    // documented load tolerance for this machine/DB (older 2s and Prisma's
+    // 5s default flaked under parallel suite load).
     const result = await this.prisma.$transaction(async (tx) => {
       // Calculate new balance using Decimal.js
       const currentBalance = new Decimal(account.balance.toString());
@@ -304,7 +308,7 @@ export class AccountService {
       });
 
       return transaction;
-    });
+    }, { timeout: 10_000 });
 
     // Broadcast balance_updated event via WebSocket (Requirement 16.2, 17.5)
     if (this.wsServer) {

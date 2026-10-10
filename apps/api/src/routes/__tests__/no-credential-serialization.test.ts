@@ -195,6 +195,7 @@ describe('No-credential serialization (apiKey + secret sweep)', () => {
     const CREDENTIAL_PROPS = ['apiKey', 'password', 'passwordHash', 'secret', 'cvv'];
     const DOCUMENTED_SHOW_ONCE = [
       'POST /accounts', // agent.apiKey — the one-time reveal
+      'POST /auth/agents/keys', // apiKey — regenerated-key one-time reveal
       'POST /webhooks/register', // secret — HMAC key handed to caller
       'POST /cards/virtual', // cvv — one-time card issue
     ];
@@ -232,10 +233,13 @@ describe('No-credential serialization (apiKey + secret sweep)', () => {
 
   it('documented show-once routes DO declare their one-time credential field', () => {
     const accounts = registeredRouteSchemas.find((r) => r.method === 'POST' && r.url === '/accounts');
+    const agentKeys = registeredRouteSchemas.find((r) => r.method === 'POST' && r.url === '/auth/agents/keys');
     const hooks = registeredRouteSchemas.find((r) => r.method === 'POST' && r.url === '/webhooks/register');
     expect(accounts).toBeTruthy();
+    expect(agentKeys).toBeTruthy();
     expect(hooks).toBeTruthy();
     expect(JSON.stringify(accounts!.responseSchemas)).toContain('"apiKey"');
+    expect(JSON.stringify(agentKeys!.responseSchemas)).toContain('"apiKey"');
     expect(JSON.stringify(hooks!.responseSchemas)).toContain('"secret"');
   });
 

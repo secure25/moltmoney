@@ -1,4 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { DATE_TIME, errorResponse } from '../lib/serialize';
+import { AUTH_RATE_LIMIT_CONFIG } from '../lib/rate-limit-config';
 import { z } from 'zod';
 import { OwnerAuthService } from '../services/auth/owner-auth.service';
 import { AgentAuthService } from '../services/auth/agent-auth.service';
@@ -39,12 +41,33 @@ export async function authRoutes(server: FastifyInstance) {
   }
 
   /**
-   * GET /auth/me - Get current user info
-   */
+ * Current-owner response shape. Handler sends the raw owner row (which ALSO
+ * carries the bcrypt password hash); the schema strips it, leaving only the
+ * declared public fields.
+ */
+const publicOwner = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    email: { type: 'string' },
+    name: { type: 'string' },
+    createdAt: DATE_TIME,
+  },
+  required: ['id', 'email', 'name', 'createdAt'],
+} as const;
+
+/**
+ * GET /auth/me - Get current user info
+ */
   server.get(
     '/auth/me',
     {
       preHandler: requireOwner,
+      schema: {
+        response: {
+          200: publicOwner,
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const owner = (request as any).owner;
@@ -53,6 +76,7 @@ export async function authRoutes(server: FastifyInstance) {
         id: owner.id,
         email: owner.email,
         name: owner.name,
+        createdAt: owner.createdAt,
       });
     }
   );
@@ -64,7 +88,22 @@ export async function authRoutes(server: FastifyInstance) {
   server.post(
     '/auth/register',
     {
+      // Strict tier (endpoint mints credentials); @fastify/rate-limit.
+      config: { rateLimit: AUTH_RATE_LIMIT_CONFIG },
       preHandler: authRateLimiter,
+      schema: {
+        response: {
+          201: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              owner: publicOwner,
+            },
+            required: ['token', 'owner'],
+          },
+          400: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = registerSchema.parse(request.body);
@@ -84,6 +123,7 @@ export async function authRoutes(server: FastifyInstance) {
             id: owner.id,
             email: owner.email,
             name: owner.name,
+            createdAt: owner.createdAt,
           },
           token,
         });
@@ -109,7 +149,23 @@ export async function authRoutes(server: FastifyInstance) {
   server.post(
     '/auth/login',
     {
+      // Strict tier (credential endpoint); @fastify/rate-limit.
+      config: { rateLimit: AUTH_RATE_LIMIT_CONFIG },
       preHandler: authRateLimiter,
+      schema: {
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              token: { type: 'string' },
+              owner: publicOwner,
+            },
+            required: ['token', 'owner'],
+          },
+          400: errorResponse(),
+          401: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = loginSchema.parse(request.body);
@@ -125,6 +181,7 @@ export async function authRoutes(server: FastifyInstance) {
             id: owner.id,
             email: owner.email,
             name: owner.name,
+            createdAt: owner.createdAt,
           },
           token,
         });
@@ -150,7 +207,26 @@ export async function authRoutes(server: FastifyInstance) {
   server.post(
     '/auth/agents/keys',
     {
+      // Strict tier: this endpoint mints agent API keys.
+      config: { rateLimit: AUTH_RATE_LIMIT_CONFIG },
       preHandler: requireOwner,
+      schema: {
+        response: {
+          // 200 body carries the PLAINTEXT apiKey: this is the documented
+          // show-once reveal (same as POST /accounts) — regenerated keys are
+          // only ever displayed at this moment and stored hashed thereafter.
+          200: {
+            type: 'object',
+            properties: {
+              agentId: { type: 'string' },
+              apiKey: { type: 'string' },
+            },
+            required: ['agentId', 'apiKey'],
+          },
+          400: errorResponse(),
+          403: errorResponse(),
+        },
+      },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = generateApiKeySchema.parse(request.body);

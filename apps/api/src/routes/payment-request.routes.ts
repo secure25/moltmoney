@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { PaymentRequestService } from '../services/payment-request/payment-request.service';
 import { requireAgent, requireOwner, requireOwnerOrAgent } from '../middleware/auth.middleware';
-import { AGENT_PUBLIC_INCLUDE } from '../services/agent/agent-public';
+import { AGENT_PUBLIC_INCLUDE, toPublicAgent } from '../services/agent/agent-public';
 import { errorResponse, DATE_TIME, decStr, str, nullable } from '../lib/serialize';
 import Decimal from 'decimal.js';
 
@@ -19,6 +19,26 @@ function paymentRequestItem() {
       paymentLink: nullable(str),
       fromAccountId: str,
       toAccountId: nullable(str),
+      // Dashboard-facing owner context: same account + public agent, under a
+      // readable key (transactions use the identical fromAccount shape). The
+      // legacy awkward relation key below is kept for wire compatibility.
+      fromAccount: nullable({
+        type: 'object',
+        properties: {
+          id: str,
+          agent: nullable({
+            type: 'object',
+            properties: {
+              id: str,
+              name: str,
+              platform: str,
+              createdAt: DATE_TIME,
+            },
+            required: ['id', 'name', 'platform', 'createdAt'],
+          }),
+        },
+        required: ['id'],
+      }),
       Account_PaymentRequest_fromAccountIdToAccount: nullable({
         type: 'object',
         properties: {
@@ -534,7 +554,9 @@ export async function paymentRequestRoutes(server: FastifyInstance) {
           status: req.status,
           fromAccountId: req.fromAccountId,
           toAccountId: req.toAccountId,
-          Account_PaymentRequest_fromAccountIdToAccount: { id: req.Account_PaymentRequest_fromAccountIdToAccount.id, agent: req.Account_PaymentRequest_fromAccountIdToAccount.Agent },
+          // Owner context for the dashboard (same shape as transactions).
+          fromAccount: { id: req.Account_PaymentRequest_fromAccountIdToAccount.id, agent: toPublicAgent(req.Account_PaymentRequest_fromAccountIdToAccount.Agent as any) },
+          Account_PaymentRequest_fromAccountIdToAccount: { id: req.Account_PaymentRequest_fromAccountIdToAccount.id, agent: toPublicAgent(req.Account_PaymentRequest_fromAccountIdToAccount.Agent as any) },
           expiresAt: req.expiresAt,
           createdAt: req.createdAt,
         })),

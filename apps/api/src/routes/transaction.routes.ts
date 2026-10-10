@@ -18,6 +18,7 @@ function transactionItem() {
       status: str,
       description: nullable(str),
       merchantName: nullable(str),
+      merchantCategory: nullable(str),
       fromAccountId: str,
       toAccountId: nullable(str),
       fromAccount: nullable(accountRow),
@@ -25,8 +26,7 @@ function transactionItem() {
       approvalRequired: { type: 'boolean' },
       approvedAt: nullable(DATE_TIME),
       createdAt: DATE_TIME,
-    },
-    required: ['id', 'amount', 'currency', 'type', 'status', 'fromAccountId', 'approvalRequired', 'createdAt'],
+    },      required: ['id', 'amount', 'currency', 'type', 'status', 'fromAccountId', 'approvalRequired', 'createdAt'],
   };
 }
 
@@ -228,6 +228,7 @@ export async function transactionRoutes(server: FastifyInstance) {
           status: tx.status,
           description: tx.description,
           merchantName: tx.merchantName,
+          merchantCategory: tx.merchantCategory,
           fromAccountId: tx.fromAccountId,
           toAccountId: tx.toAccountId,
           fromAccount: serializeAccount(tx.Account_Transaction_fromAccountIdToAccount),
@@ -345,6 +346,7 @@ export async function transactionRoutes(server: FastifyInstance) {
         status: transaction.status,
         description: transaction.description,
         merchantName: transaction.merchantName,
+        merchantCategory: transaction.merchantCategory,
         fromAccountId: transaction.fromAccountId,
         toAccountId: transaction.toAccountId,
         approvalRequired: transaction.approvalRequired,

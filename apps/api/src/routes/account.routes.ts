@@ -12,6 +12,7 @@ import {
   nullable,
   spendingRules,
 } from '../lib/serialize';
+import { AuditService, AUDIT_ACTION, actorFromRequest } from '../services/audit/audit.service';
 import Decimal from 'decimal.js';
 
 /** Shared account summary shape for fund/freeze/unfreeze/close responses. */
@@ -155,6 +156,15 @@ export async function accountRoutes(server: FastifyInstance) {
         body.name,
         body.platform
       );
+
+      // Audit: agent creation (security-relevant: mints an API key).
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.AGENT_CREATED,
+        targetType: 'Agent',
+        targetId: agent.id,
+        metadata: { name: agent.name, platform: agent.platform, accountId: account.id },
+      });
 
       return reply.status(201).send({
         agent: {
@@ -434,6 +444,16 @@ export async function accountRoutes(server: FastifyInstance) {
 
       const updatedAccount = await accountService.updateSpendingRules(id, rules);
 
+      // Audit: spending-rule changes gate real money movement.
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.SPENDING_RULES_UPDATED,
+        targetType: 'Account',
+        targetId: id,
+        // NOTE: rules values are limits/category NAMES — never secrets.
+        metadata: { rules: body as unknown as Record<string, unknown> },
+      });
+
       return reply.send({
         account: {
           id: updatedAccount.id,
@@ -632,6 +652,7 @@ export async function accountRoutes(server: FastifyInstance) {
           id: updatedAccount.id,
           balance: updatedAccount.balance.toString(),
           currency: updatedAccount.currency,
+          status: updatedAccount.status,
         },
         transaction: {
           id: transaction.id,

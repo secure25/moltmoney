@@ -1,4 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { MONEY_RATE_LIMIT_CONFIG } from '../lib/rate-limit-config';
+import { AuditService, AUDIT_ACTION, actorFromRequest } from '../services/audit/audit.service';
 import { z } from 'zod';
 import { CardService } from '../services/card/card.service';
 import { createCardIssuingProvider } from '../providers';
@@ -26,6 +28,8 @@ export async function cardRoutes(server: FastifyInstance) {
   server.post(
     '/cards/virtual',
     {
+      // Strict tier: card issuing/mutating endpoints.
+      config: { rateLimit: MONEY_RATE_LIMIT_CONFIG },
       preHandler: requireOwner,
       schema: {
         response: {
@@ -67,6 +71,16 @@ export async function cardRoutes(server: FastifyInstance) {
 
       const spendLimit = body.spendLimit ? new Decimal(body.spendLimit) : undefined;
       const card = await cardService.issueCard(body.accountId, spendLimit);
+
+      // Audit: card issuance (a spend-capable instrument is minted).
+      // Metadata records only the card's ID/last4 shape — never the number/CVV.
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.CARD_ISSUED,
+        targetType: 'VirtualCard',
+        targetId: card.id,
+        metadata: { accountId: card.accountId, spendLimit: card.spendLimit?.toString() ?? null },
+      });
 
       return reply.status(201).send({
         id: card.id,
@@ -189,6 +203,8 @@ export async function cardRoutes(server: FastifyInstance) {
   server.patch(
     '/cards/:id/freeze',
     {
+      // Strict tier: card issuing/mutating endpoints.
+      config: { rateLimit: MONEY_RATE_LIMIT_CONFIG },
       preHandler: requireOwner,
       schema: {
         response: {
@@ -234,6 +250,15 @@ export async function cardRoutes(server: FastifyInstance) {
 
       const frozenCard = await cardService.freezeCard(id);
 
+      // Audit: freeze flips a live payment instrument's state.
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.CARD_FROZEN,
+        targetType: 'VirtualCard',
+        targetId: frozenCard.id,
+        metadata: { status: frozenCard.status },
+      });
+
       return reply.send({
         id: frozenCard.id,
         status: frozenCard.status,
@@ -248,6 +273,8 @@ export async function cardRoutes(server: FastifyInstance) {
   server.patch(
     '/cards/:id/unfreeze',
     {
+      // Strict tier: card issuing/mutating endpoints.
+      config: { rateLimit: MONEY_RATE_LIMIT_CONFIG },
       preHandler: requireOwner,
       schema: {
         response: {
@@ -293,6 +320,15 @@ export async function cardRoutes(server: FastifyInstance) {
 
       const unfrozenCard = await cardService.unfreezeCard(id);
 
+      // Audit: unfreeze re-enables a payment instrument.
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.CARD_UNFROZEN,
+        targetType: 'VirtualCard',
+        targetId: unfrozenCard.id,
+        metadata: { status: unfrozenCard.status },
+      });
+
       return reply.send({
         id: unfrozenCard.id,
         status: unfrozenCard.status,
@@ -307,6 +343,8 @@ export async function cardRoutes(server: FastifyInstance) {
   server.patch(
     '/cards/:id/cancel',
     {
+      // Strict tier: card issuing/mutating endpoints.
+      config: { rateLimit: MONEY_RATE_LIMIT_CONFIG },
       preHandler: requireOwner,
       schema: {
         response: {
@@ -351,6 +389,15 @@ export async function cardRoutes(server: FastifyInstance) {
       }
 
       const cancelledCard = await cardService.cancelCard(id);
+
+      // Audit: cancellation permanently disables the instrument.
+      await new AuditService(server.prisma).record({
+        ...actorFromRequest(request),
+        action: AUDIT_ACTION.CARD_CANCELLED,
+        targetType: 'VirtualCard',
+        targetId: cancelledCard.id,
+        metadata: { status: cancelledCard.status },
+      });
 
       return reply.send({
         id: cancelledCard.id,
