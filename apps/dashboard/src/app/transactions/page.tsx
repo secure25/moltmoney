@@ -17,6 +17,9 @@ interface Transaction {
   status: string
   description?: string
   merchantName?: string
+  merchantCategory?: string | null
+  providerName?: string | null
+  providerRefId?: string | null
   createdAt: string
   fromAccount?: { agent?: { name: string } }
   toAccount?: { agent?: { name: string } }
@@ -29,6 +32,10 @@ export default function TransactionsPage() {
   const [total, setTotal] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
+  // Blocked categories come from the first visible account's spending
+  // policy (repo convention: agent accounts are per-owner here). Null
+  // while loading; [] when the account has no restrictions.
+  const [blockedCategories, setBlockedCategories] = useState<string[] | null>(null)
   
   // Filters
   const [typeFilter, setTypeFilter] = useState<string>('all')
@@ -75,12 +82,64 @@ export default function TransactionsPage() {
         setTransactions(data.data || [])
         setTotal(data.total || 0)
         setHasMore(data.hasMore || false)
+        void fetchBlockedCategories()
       }
     } catch (error) {
       console.error('Failed to fetch transactions:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  // Fetch the account's spending policy for the blocked-categories digest
+  // used to highlight restricted rows. Best-effort: a failure (no accounts,
+  // policy endpoint unavailable) simply disables the highlight, matching
+  // the fetch conventions of the rest of this page.
+  const fetchBlockedCategories = async () => {
+    try {
+      const token = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith('token='))
+        ?.split('=')[1]
+
+      const accountsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/accounts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!accountsRes.ok) {
+        setBlockedCategories([])
+        return
+      }
+      const accounts = await accountsRes.json()
+      const firstAccount = Array.isArray(accounts) ? accounts[0] : null
+      if (!firstAccount?.id) {
+        setBlockedCategories([])
+        return
+      }
+
+      const policyRes = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/accounts/${firstAccount.id}/spending-policy`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (!policyRes.ok) {
+        setBlockedCategories([])
+        return
+      }
+      const policy = await policyRes.json()
+      const blocked = policy?.rules?.blockedCategories
+      setBlockedCategories(Array.isArray(blocked) ? blocked : [])
+    } catch {
+      setBlockedCategories([])
+    }
+  }
+
+  const isBlocked = (tx: Transaction): boolean => {
+    if (!blockedCategories || blockedCategories.length === 0) return false
+    const category = tx.merchantCategory?.trim()
+    if (!category) return false
+    // Case-insensitive to mirror spending-policy's exact-match check.
+    return blockedCategories.some(
+      (b) => b.trim().toLowerCase() === category.toLowerCase()
+    )
   }
 
   const handleExport = async (format: 'csv' | 'json') => {
@@ -211,11 +270,18 @@ export default function TransactionsPage() {
                     ? tx.description.match(/\*{4}\d{4}/)?.[0] 
                     : null
 
+                  // Category display: legacy rows have no category — show a
+                  // muted 'uncategorized' rather than nothing or an error.
+                  const category = tx.merchantCategory?.trim()
+                  const blocked = isBlocked(tx)
+
                   return (
                     <div
                       key={tx.id}
                       onClick={() => setSelectedTx(tx)}
-                      className="flex cursor-pointer items-center justify-between rounded-lg border p-4 hover:bg-accent"
+                      className={`flex cursor-pointer items-center justify-between rounded-lg border p-4 hover:bg-accent ${
+                        blocked ? 'border-destructive bg-destructive/5' : ''
+                      }`}
                     >
                       <div className="flex-1">
                         <p className="font-medium">
@@ -233,6 +299,20 @@ export default function TransactionsPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-4">
+                        {/* Category badge: distinct when blocked, muted when
+                            absent (legacy rows), plain otherwise. */}
+                        <Badge
+                          variant="outline"
+                          className={
+                            blocked
+                              ? 'border-destructive text-destructive'
+                              : category
+                                ? ''
+                                : 'text-muted-foreground/60'
+                          }
+                        >
+                          {blocked ? `⛔ ${category}` : category || 'uncategorized'}
+                        </Badge>
                         <Badge variant={isPayout ? 'default' : 'outline'}>
                           {tx.type}
                         </Badge>
@@ -326,10 +406,31 @@ export default function TransactionsPage() {
                   <p>{selectedTx.merchantName}</p>
                 </div>
               )}
+              <div>
+                <Label>Category</Label>
+                <div className="flex items-center gap-2">
+                  {isBlocked(selectedTx) ? (
+                    <Badge variant="destructive">⛔ {selectedTx.merchantCategory?.trim()} — blocked by spending policy</Badge>
+                  ) : selectedTx.merchantCategory?.trim() ? (
+                    <Badge variant="outline">{selectedTx.merchantCategory.trim()}</Badge>
+                  ) : (
+                    <span className="text-sm text-muted-foreground/60">uncategorized</span>
+                  )}
+                </div>
+              </div>
               {selectedTx.description && (
                 <div>
                   <Label>Description</Label>
                   <p>{selectedTx.description}</p>
+                </div>
+              )}
+              {selectedTx.providerName && (
+                <div>
+                  <Label>Provider</Label>
+                  <p className="text-sm">
+                    {selectedTx.providerName}
+                    {selectedTx.providerRefId ? ` · ${selectedTx.providerRefId}` : ''}
+                  </p>
                 </div>
               )}
               <div>

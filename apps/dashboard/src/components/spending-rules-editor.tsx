@@ -9,18 +9,33 @@ import { Label } from '@/components/ui/label'
 interface SpendingRulesEditorProps {
   accountId: string
   initialRules: {
-    dailyLimit?: string
-    perTransactionLimit?: string
+    dailyLimit?: string | number
+    perTransactionLimit?: string | number
     blockedCategories?: string[]
-    requireApprovalAbove?: string
+    requireApprovalAbove?: string | number
   }
+  /** Optional: called on every blockedCategories text change (live list). */
+  onBlockedCategoriesChange?: (categories: string[] | null) => void
+  /** Optional: called with the saved rules after a successful PATCH. */
+  onRulesSaved?: () => void
 }
 
-export function SpendingRulesEditor({ accountId, initialRules }: SpendingRulesEditorProps) {
+export function SpendingRulesEditor({
+  accountId,
+  initialRules,
+  onBlockedCategoriesChange,
+  onRulesSaved,
+}: SpendingRulesEditorProps) {
   const router = useRouter()
-  const [dailyLimit, setDailyLimit] = useState(initialRules.dailyLimit || '')
-  const [perTransactionLimit, setPerTransactionLimit] = useState(initialRules.perTransactionLimit || '')
-  const [requireApprovalAbove, setRequireApprovalAbove] = useState(initialRules.requireApprovalAbove || '')
+  const [dailyLimit, setDailyLimit] = useState(
+    initialRules.dailyLimit != null ? String(initialRules.dailyLimit) : ''
+  )
+  const [perTransactionLimit, setPerTransactionLimit] = useState(
+    initialRules.perTransactionLimit != null ? String(initialRules.perTransactionLimit) : ''
+  )
+  const [requireApprovalAbove, setRequireApprovalAbove] = useState(
+    initialRules.requireApprovalAbove != null ? String(initialRules.requireApprovalAbove) : ''
+  )
   const [blockedCategories, setBlockedCategories] = useState(
     initialRules.blockedCategories?.join(', ') || ''
   )
@@ -58,11 +73,29 @@ export function SpendingRulesEditor({ accountId, initialRules }: SpendingRulesEd
       })
 
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.message || 'Failed to update rules')
+        interface ApiErrorShape {
+          error?: {
+            message?: string
+            details?: Array<{ path?: string[]; message?: string }>
+          }
+          message?: string
+        }
+        const data: ApiErrorShape | null = await response
+          .json()
+          .catch(() => null)
+        // Surface Zod details when present (e.g. "Must be a valid amount …")
+        const zodDetail = data?.error?.details
+          ? data.error.details
+              .map((d) => `${d.path?.join('.')}: ${d.message}`)
+              .join('; ')
+          : null
+        const detail =
+          data?.error?.message || data?.message || 'Failed to update rules'
+        throw new Error(zodDetail || detail)
       }
 
       setSuccess(true)
+      onRulesSaved?.()
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update rules')
@@ -126,7 +159,16 @@ export function SpendingRulesEditor({ accountId, initialRules }: SpendingRulesEd
           type="text"
           placeholder="e.g., gambling, alcohol"
           value={blockedCategories}
-          onChange={(e) => setBlockedCategories(e.target.value)}
+          onChange={(e) => {
+            setBlockedCategories(e.target.value)
+            // Mirror the parsed list live (null while unchecked/empty so the
+            // panel falls back to the server's authoritative copy).
+            const parsed = e.target.value
+              .split(',')
+              .map((c) => c.trim())
+              .filter(Boolean)
+            onBlockedCategoriesChange?.(parsed.length > 0 || e.target.value.trim() !== '' ? parsed : null)
+          }}
           disabled={loading}
         />
       </div>

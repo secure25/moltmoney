@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { FundAccountForm } from '@/components/fund-account-form'
-import { SpendingRulesEditor } from '@/components/spending-rules-editor'
+import { SpendingPolicySection } from '@/components/spending-policy-section'
 
 interface Agent {
   id: string
@@ -196,7 +196,7 @@ export default async function AgentDetailPage({ params }: { params: { id: string
             <CardTitle>Spending Rules</CardTitle>
           </CardHeader>
           <CardContent>
-            <SpendingRulesEditor
+            <SpendingPolicySection
               accountId={agent.account.id}
               initialRules={agent.account.spendingRules || {}}
             />
