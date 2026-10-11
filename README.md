@@ -15,8 +15,17 @@ moltmoney/
 │   ├── database/     # Prisma ORM and database layer
 │   └── shared/       # Shared types and utilities
 └── scripts/
-    └── db.mjs        # Local PostgreSQL manager (no Docker needed)
+    ├── db.mjs        # Local PostgreSQL manager (no Docker needed)
+    └── smoke.mjs     # End-to-end HTTP smoke test
 ```
+
+Agent-side clients (OpenClaw skills and chat-agent connectors) live in
+their own repos; this hub ships only the API + dashboard. Agents
+authenticate with the account-scoped API key shown once when the agent
+is created in the dashboard. Reference client integrations:
+- Elio (chat agent): github.com/secure25/elio — MoltMoney connector for
+  PayPal purchases, internal transfers, cards, payouts and
+  payment-requests, all human-approval gated.
 
 ## Prerequisites
 
@@ -141,9 +150,10 @@ development afterwards.
 
 The platform consists of three main components:
 
-1. **Backend API** - RESTful API with WebSocket support for real-time events
-2. **Frontend Dashboard** - Owner interface for managing agents and viewing transactions
-3. **Mock Payment Provider** - Internal module simulating card issuer functionality
+1. **Backend API** - RESTful API with WebSocket support for real-time events. Two auth realms: owner JWT (dashboard) and agent API keys (money operations). Card issuing/freeze/cancel and fund-request approval are owner-token only by design.
+2. **Frontend Dashboard** - Owner interface for managing agents, viewing transactions, approving held payments/fund requests and issuing cards
+3. **Payment providers** - `mock` (default) or PayPal Sandbox (`PAYMENT_PROVIDER=paypal`); provider is swappable behind a common interface
+4. **Smoke test** - `scripts/smoke.mjs` drives the full register→fund→pay→transfer→freeze flow over real HTTP
 
 ## Development Workflow
 
