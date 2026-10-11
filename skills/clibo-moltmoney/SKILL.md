@@ -4,12 +4,7 @@ This skill enables REDACTED-AGENT to perform banking operations through the Molt
 
 ## Configuration
 
-The skill is pre-configured with REDACTED-AGENT's credentials:
-- **API URL**: https://REDACTED-NGROK-HOST
-- **Account ID**: REDACTED-ACCOUNT-ID
-- **API Key**: REDACTED-ROTATED-KEY
-
-You can override these with environment variables:
+Configure skill with environment variables:
 - `MOLTMONEY_API_URL`
 - `MOLTMONEY_API_KEY`
 - `MOLTMONEY_ACCOUNT_ID`

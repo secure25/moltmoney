@@ -284,12 +284,12 @@ export class REDACTED-AGENTMoltMoneySkill {
   }
 }
 
-// Initialize with REDACTED-AGENT's credentials
+// Initialize from environment only - no hardcoded credentials.
 export function initializeSkill(): REDACTED-AGENTMoltMoneySkill {
   const config: MoltMoneyConfig = {
-    apiUrl: process.env.MOLTMONEY_API_URL || 'https://REDACTED-NGROK-HOST',
-    apiKey: process.env.MOLTMONEY_API_KEY || 'REDACTED-ROTATED-KEY',
-    accountId: process.env.MOLTMONEY_ACCOUNT_ID || 'REDACTED-ACCOUNT-ID',
+    apiUrl: process.env.MOLTMONEY_API_URL || '',
+    apiKey: process.env.MOLTMONEY_API_KEY || '',
+    accountId: process.env.MOLTMONEY_ACCOUNT_ID || '',
   };
 
   return new REDACTED-AGENTMoltMoneySkill(config);

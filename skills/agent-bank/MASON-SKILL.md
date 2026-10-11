@@ -8,7 +8,7 @@ emoji: 💳
 
 ```javascript
 const API_URL = "https://REDACTED-NGROK-HOST";
-const API_KEY = "REDACTED-ROTATED-KEY";
+const API_KEY = process.env.REDACTED-AGENT_KEY ?? "REDACTED-AGENT_API_KEY_HERE";  // set REDACTED-AGENT_KEY in environment - never commit real keys
 const ACCOUNT_ID = "e99250d7-6818-4c37-9317-8dc232e03a77";
 ```
 
