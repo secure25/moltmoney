@@ -17,6 +17,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Static brand asset (public directory) — must stay servable so the
+  // landing-page header and authenticated nav can render the icon.
+  if (pathname === '/moltmoney-icon.png') {
+    return NextResponse.next()
+  }
+
   // Protected routes (everything else)
   if (!token) {
     return NextResponse.redirect(new URL('/auth/login', request.url))

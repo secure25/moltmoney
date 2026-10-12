@@ -214,19 +214,19 @@ export default function NewAgentPage() {
       </Link>
 
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">Create New Agent</h1>
-        <p className="text-gray-600">Set up a new AI agent with its own banking account</p>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">Create New Agent</h1>
+        <p className="text-sm text-muted-foreground">Set up a new AI agent with its own banking account</p>
       </div>
 
-      <Card className="glass border-purple-200/50 shadow-xl">
-        <CardHeader className="border-b border-gray-200/50">
+      <Card className="border-border shadow-none">
+        <CardHeader className="border-b border-border py-4">
           <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-xl gradient-premium flex items-center justify-center">
-              <Bot className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 rounded-lg bg-primary/5 text-primary flex items-center justify-center">
+              <Bot className="w-5 h-5" />
             </div>
             <div>
-              <CardTitle className="text-2xl">Agent Details</CardTitle>
-              <CardDescription>Provide information about your AI agent</CardDescription>
+              <CardTitle className="text-base text-foreground">Agent Details</CardTitle>
+              <CardDescription className="text-xs">Provide information about your AI agent</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -300,7 +300,7 @@ export default function NewAgentPage() {
               <Button
                 type="submit"
                 disabled={loading}
-                className="flex-1 h-12 rounded-xl gradient-primary text-white border-0 hover:shadow-lg hover:shadow-purple-500/50 transition-all"
+                className="flex-1 h-10 rounded-lg gradient-primary text-white border-0 hover:opacity-90 transition-opacity"
               >
                 {loading ? 'Creating...' : 'Create Agent'}
               </Button>

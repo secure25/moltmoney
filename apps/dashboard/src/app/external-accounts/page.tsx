@@ -1,14 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ArrowLeft, Building2, Plus, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Building2, Plus, Eye, EyeOff, Loader2, Landmark } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/page-header'
 
 interface ExternalAccount {
   id: string
@@ -100,14 +99,14 @@ export default function ExternalAccountsPage() {
 
       await response.json()
       setSuccess('Mock external account created successfully!')
-      
+
       // Reset form
       setRoutingNumber('')
       setAccountNumber('')
       setAccountHolder('')
       setAccountType('CHECKING')
       setInitialBalance('1000.00')
-      
+
       // Reload accounts
       loadAccounts()
     } catch (err) {
@@ -149,51 +148,100 @@ export default function ExternalAccountsPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <Link 
-        href="/dashboard" 
-        className="inline-flex items-center text-sm text-gray-600 hover:text-purple-600 transition-colors mb-6"
-      >
-        <ArrowLeft className="w-4 h-4 mr-2" />
-        Back to Dashboard
-      </Link>
-
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">External Bank Accounts</h1>
-        <p className="text-gray-600">Manage mock external bank accounts for testing payouts</p>
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">External Accounts</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Manage your linked bank accounts and payout methods.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => {
+            document.getElementById('add-external-account')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }}
+          className="gradient-primary text-white border-0 hover:opacity-90 transition-opacity"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Add External Account
+        </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Create Account Form */}
-        <Card className="glass border-purple-200/50 shadow-xl">
-          <CardHeader className="border-b border-gray-200/50">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 rounded-xl gradient-premium flex items-center justify-center">
-                <Plus className="w-6 h-6 text-white" />
+      {/* Account cards grid */}
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-7 w-7 animate-spin text-primary" />
+        </div>
+      ) : accounts.length === 0 ? (
+        <div className="card-surface flex flex-col items-center justify-center px-6 py-14 text-center">
+          <Building2 className="mb-3 h-9 w-9 text-muted-foreground/50" />
+          <p className="text-sm font-medium text-foreground">No external accounts yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Add a mock external account below to start testing payouts.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {accounts.map((account) => (
+            <div
+              key={account.id}
+              className="card-surface cursor-pointer p-5 transition-shadow hover:shadow-md"
+              onClick={() => viewAccountDetails(account.routingNumber, account.accountNumber)}
+            >
+              <div className="mb-4 flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/5 text-primary">
+                    <Landmark className="h-4.5 w-4.5" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{account.accountHolder}</p>
+                    <p className="font-num text-xs text-muted-foreground">
+                      •••• {account.accountNumber.slice(-4)}
+                    </p>
+                  </div>
+                </div>
+                <StatusBadge status={account.status} />
               </div>
-              <div>
-                <CardTitle className="text-2xl">Create Mock Account</CardTitle>
-                <CardDescription>Add a new external bank account for testing</CardDescription>
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">{account.accountType}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Available balance</p>
+                  <p className="text-lg font-bold text-foreground font-num">${account.balance}</p>
+                </div>
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <div className="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-600">
-                  {error}
-                </div>
-              )}
+          ))}
+        </div>
+      )}
 
-              {success && (
-                <div className="rounded-xl bg-green-50 border border-green-200 p-4 text-sm text-green-600">
-                  {success}
-                </div>
-              )}
+      {/* Add-account form (below the grid, per wireframe) */}
+      <Card id="add-external-account" className="border-border shadow-none scroll-mt-20">
+        <CardHeader className="border-b border-border py-3">
+          <CardTitle className="text-sm font-semibold text-foreground">Add Mock External Account</CardTitle>
+          <CardDescription className="text-xs">
+            For testing payouts only — sandbox / test account.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {error && (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700" role="alert">
+                {error}
+              </div>
+            )}
 
-              <div className="space-y-2">
-                <Label htmlFor="routingNumber" className="text-gray-700 font-medium">
-                  Routing Number <span className="text-red-500">*</span>
+            {success && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-700" role="status">
+                {success}
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="routingNumber" className="text-xs text-muted-foreground">
+                  Routing Number <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="routingNumber"
@@ -205,14 +253,14 @@ export default function ExternalAccountsPage() {
                   disabled={creating}
                   maxLength={9}
                   pattern="[0-9]{9}"
-                  className="h-12 rounded-xl border-gray-300 focus:border-purple-500 focus:ring-purple-500 font-mono"
+                  className="h-9 font-mono"
                 />
-                <p className="text-sm text-gray-500">9 digits</p>
+                <p className="text-xs text-muted-foreground">9 digits</p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="accountNumber" className="text-gray-700 font-medium">
-                  Account Number <span className="text-red-500">*</span>
+              <div className="space-y-1.5">
+                <Label htmlFor="accountNumber" className="text-xs text-muted-foreground">
+                  Account Number <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="accountNumber"
@@ -225,14 +273,14 @@ export default function ExternalAccountsPage() {
                   minLength={8}
                   maxLength={17}
                   pattern="[0-9]{8,17}"
-                  className="h-12 rounded-xl border-gray-300 focus:border-purple-500 focus:ring-purple-500 font-mono"
+                  className="h-9 font-mono"
                 />
-                <p className="text-sm text-gray-500">8-17 digits</p>
+                <p className="text-xs text-muted-foreground">8–17 digits</p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="accountHolder" className="text-gray-700 font-medium">
-                  Account Holder <span className="text-red-500">*</span>
+              <div className="space-y-1.5">
+                <Label htmlFor="accountHolder" className="text-xs text-muted-foreground">
+                  Account Holder <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="accountHolder"
@@ -242,16 +290,16 @@ export default function ExternalAccountsPage() {
                   onChange={(e) => setAccountHolder(e.target.value)}
                   required
                   disabled={creating}
-                  className="h-12 rounded-xl border-gray-300 focus:border-purple-500 focus:ring-purple-500"
+                  className="h-9"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="accountType" className="text-gray-700 font-medium">
-                  Account Type <span className="text-red-500">*</span>
+              <div className="space-y-1.5">
+                <Label htmlFor="accountType" className="text-xs text-muted-foreground">
+                  Account Type <span className="text-destructive">*</span>
                 </Label>
                 <Select value={accountType} onValueChange={setAccountType} disabled={creating}>
-                  <SelectTrigger className="h-12 rounded-xl border-gray-300">
+                  <SelectTrigger className="h-9">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -260,10 +308,12 @@ export default function ExternalAccountsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="initialBalance" className="text-gray-700 font-medium">
-                  Initial Balance <span className="text-red-500">*</span>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="initialBalance" className="text-xs text-muted-foreground">
+                  Initial Balance <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="initialBalance"
@@ -274,164 +324,132 @@ export default function ExternalAccountsPage() {
                   required
                   disabled={creating}
                   pattern="[0-9]+(\.[0-9]{1,2})?"
-                  className="h-12 rounded-xl border-gray-300 focus:border-purple-500 focus:ring-purple-500 font-mono"
+                  className="h-9 font-mono"
                 />
-                <p className="text-sm text-gray-500">Amount in USD</p>
+                <p className="text-xs text-muted-foreground">Amount in USD</p>
               </div>
+            </div>
 
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRoutingNumber('')
+                  setAccountNumber('')
+                  setAccountHolder('')
+                  setAccountType('CHECKING')
+                  setInitialBalance('1000.00')
+                  setError('')
+                  setSuccess('')
+                }}
+                disabled={creating}
+              >
+                Cancel
+              </Button>
               <Button
                 type="submit"
+                size="sm"
                 disabled={creating}
-                className="w-full h-12 rounded-xl gradient-primary text-white border-0 hover:shadow-lg hover:shadow-purple-500/50 transition-all"
+                className="gradient-primary text-white border-0 hover:opacity-90 transition-opacity"
               >
                 {creating ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Creating...
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating…
                   </>
                 ) : (
-                  'Create Account'
+                  <>
+                    <Plus className="h-4 w-4 mr-1" />
+                    Save Account
+                  </>
                 )}
               </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Account List */}
-        <Card className="glass border-purple-200/50 shadow-xl">
-          <CardHeader className="border-b border-gray-200/50">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 rounded-xl gradient-gold flex items-center justify-center">
-                <Building2 className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <CardTitle className="text-2xl">Mock Accounts</CardTitle>
-                <CardDescription>External bank accounts for testing</CardDescription>
-              </div>
             </div>
-          </CardHeader>
-          <CardContent className="pt-6">
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
-              </div>
-            ) : accounts.length === 0 ? (
-              <div className="text-center py-12">
-                <Building2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">No external accounts yet</p>
-                <p className="text-sm text-gray-500 mt-1">Create one to start testing payouts</p>
-              </div>
-            ) : (
-              <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                {accounts.map((account) => (
-                  <div
-                    key={account.id}
-                    className="p-4 rounded-xl border border-gray-200 hover:border-purple-300 hover:shadow-md transition-all cursor-pointer"
-                    onClick={() => viewAccountDetails(account.routingNumber, account.accountNumber)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="font-semibold text-gray-900">{account.accountHolder}</p>
-                        <p className="text-sm text-gray-600 font-mono">****{account.accountNumber.slice(-4)}</p>
-                      </div>
-                      <Badge variant={account.status === 'ACTIVE' ? 'default' : 'secondary'}>
-                        {account.status}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">{account.accountType}</span>
-                      <span className="font-semibold text-gray-900">${account.balance}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          </form>
+        </CardContent>
+      </Card>
 
       {/* Account Details Modal */}
       {selectedAccount && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
           onClick={() => setSelectedAccount(null)}
         >
-          <Card 
-            className="glass border-purple-200/50 shadow-2xl max-w-lg w-full"
+          <Card
+            className="shadow-2xl max-w-lg w-full bg-white"
             onClick={(e) => e.stopPropagation()}
           >
-            <CardHeader className="border-b border-gray-200/50">
+            <CardHeader className="border-b border-border">
               <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 rounded-xl gradient-premium flex items-center justify-center">
-                    <Building2 className="w-6 h-6 text-white" />
-                  </div>
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/5 text-primary">
+                    <Building2 className="h-5 w-5" />
+                  </span>
                   <div>
-                    <CardTitle className="text-2xl">Account Details</CardTitle>
-                    <CardDescription>{selectedAccount.accountHolder}</CardDescription>
+                    <CardTitle className="text-lg text-foreground">Account Details</CardTitle>
+                    <CardDescription className="text-xs">{selectedAccount.accountHolder}</CardDescription>
                   </div>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setSelectedAccount(null)}
-                  className="rounded-lg"
                 >
                   Close
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="pt-6 space-y-4">
+            <CardContent className="pt-4 space-y-4">
               <div>
-                <Label className="text-gray-700 font-medium">Account Holder</Label>
-                <p className="text-lg text-gray-900 mt-1">{selectedAccount.accountHolder}</p>
+                <Label className="text-xs text-muted-foreground">Account Holder</Label>
+                <p className="mt-0.5 text-sm font-medium text-foreground">{selectedAccount.accountHolder}</p>
               </div>
 
               <div>
-                <Label className="text-gray-700 font-medium">Routing Number</Label>
-                <p className="text-lg text-gray-900 font-mono mt-1">{selectedAccount.routingNumber}</p>
+                <Label className="text-xs text-muted-foreground">Routing Number</Label>
+                <p className="mt-0.5 font-mono text-sm text-foreground font-num">{selectedAccount.routingNumber}</p>
               </div>
 
               <div>
-                <Label className="text-gray-700 font-medium">Account Number</Label>
-                <div className="flex items-center space-x-2 mt-1">
-                  <p className="text-lg text-gray-900 font-mono flex-1">
-                    {showAccountNumber ? selectedAccount.accountNumber : `****${selectedAccount.accountNumber.slice(-4)}`}
+                <Label className="text-xs text-muted-foreground">Account Number</Label>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <p className="flex-1 font-mono text-sm text-foreground font-num">
+                    {showAccountNumber ? selectedAccount.accountNumber : `••••${selectedAccount.accountNumber.slice(-4)}`}
                   </p>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setShowAccountNumber(!showAccountNumber)}
-                    className="rounded-lg"
+                    aria-label={showAccountNumber ? 'Hide account number' : 'Show account number'}
                   >
-                    {showAccountNumber ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showAccountNumber ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-gray-700 font-medium">Account Type</Label>
-                  <p className="text-lg text-gray-900 mt-1">{selectedAccount.accountType}</p>
+                  <Label className="text-xs text-muted-foreground">Account Type</Label>
+                  <p className="mt-0.5 text-sm font-medium text-foreground">{selectedAccount.accountType}</p>
                 </div>
                 <div>
-                  <Label className="text-gray-700 font-medium">Status</Label>
+                  <Label className="text-xs text-muted-foreground">Status</Label>
                   <div className="mt-1">
-                    <Badge variant={selectedAccount.status === 'ACTIVE' ? 'default' : 'secondary'}>
-                      {selectedAccount.status}
-                    </Badge>
+                    <StatusBadge status={selectedAccount.status} />
                   </div>
                 </div>
               </div>
 
               <div>
-                <Label className="text-gray-700 font-medium">Balance</Label>
-                <p className="text-2xl font-bold text-gray-900 mt-1">${selectedAccount.balance}</p>
+                <Label className="text-xs text-muted-foreground">Balance</Label>
+                <p className="mt-0.5 text-xl font-bold text-foreground font-num">${selectedAccount.balance}</p>
               </div>
 
               <div>
-                <Label className="text-gray-700 font-medium">Created</Label>
-                <p className="text-sm text-gray-600 mt-1">
+                <Label className="text-xs text-muted-foreground">Created</Label>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {new Date(selectedAccount.createdAt).toLocaleString()}
                 </p>
               </div>

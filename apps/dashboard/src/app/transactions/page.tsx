@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Download } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { StatusBadge } from '@/components/page-header'
 
 interface Transaction {
   id: string
@@ -177,30 +179,60 @@ export default function TransactionsPage() {
     }
   }
 
+  const fmtDate = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+    ' ' +
+    new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Transactions</h1>
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Transactions</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            View and manage all transactions across your accounts.
+          </p>
+        </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => handleExport('csv')}>
+          <Button variant="outline" size="sm" onClick={() => handleExport('csv')}>
+            <Download className="h-4 w-4 mr-2" />
             Export CSV
           </Button>
-          <Button variant="outline" onClick={() => handleExport('json')}>
+          <Button variant="outline" size="sm" onClick={() => handleExport('json')}>
+            <Download className="h-4 w-4 mr-2" />
             Export JSON
           </Button>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="space-y-2">
-              <Label>Type</Label>
+      {/* Horizontal filter row */}
+      <Card className="border-border shadow-none">
+        <CardContent className="p-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Date range</Label>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-9"
+                  aria-label="Start date"
+                />
+                <span className="text-xs text-muted-foreground">–</span>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-9"
+                  aria-label="End date"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Type</Label>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger>
+                <SelectTrigger className="h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -212,10 +244,10 @@ export default function TransactionsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Status</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
+                <SelectTrigger className="h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -228,122 +260,142 @@ export default function TransactionsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Start Date</Label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Category</Label>
+              <Input type="text" disabled placeholder="All categories" className="h-9" />
             </div>
-            <div className="space-y-2">
-              <Label>End Date</Label>
+            <div className="flex items-end">
               <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                type="text"
+                placeholder="Search merchant, agent, or ID…"
+                className="h-9"
+                disabled
+                aria-label="Search transactions"
               />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            Transactions ({total})
+      <Card className="border-border shadow-none overflow-hidden">
+        <CardHeader className="border-b border-border py-3">
+          <CardTitle className="text-sm font-semibold text-foreground">
+            Transactions {total > 0 && <span className="ml-1 text-muted-foreground font-normal">({total})</span>}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {loading ? (
-            <p className="text-center text-muted-foreground">Loading...</p>
+            <div className="px-4 py-12 text-center text-sm text-muted-foreground">Loading transactions…</div>
           ) : transactions.length === 0 ? (
-            <p className="text-center text-muted-foreground">No transactions found.</p>
+            <div className="px-4 py-12 text-center">
+              <p className="text-sm font-medium text-foreground">No transactions found</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Try adjusting the filters above — nothing matches the current criteria.
+              </p>
+            </div>
           ) : (
             <>
-              <div className="space-y-4">
-                {transactions.map((tx) => {
-                  // Extract recipient info for PAYOUT transactions
-                  const isPayout = tx.type === 'PAYOUT'
-                  const recipientName = isPayout ? tx.merchantName : null
-                  const maskedAccount = isPayout && tx.description 
-                    ? tx.description.match(/\*{4}\d{4}/)?.[0] 
-                    : null
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                      <th className="px-4 py-2.5 font-medium">Date/time</th>
+                      <th className="px-4 py-2.5 font-medium">Merchant / Description</th>
+                      <th className="px-4 py-2.5 font-medium">Agent</th>
+                      <th className="px-4 py-2.5 font-medium">Category</th>
+                      <th className="px-4 py-2.5 font-medium">Tx ID</th>
+                      <th className="px-4 py-2.5 font-medium">Status</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.map((tx) => {
+                      // Extract recipient info for PAYOUT transactions
+                      const isPayout = tx.type === 'PAYOUT'
+                      const recipientName = isPayout ? tx.merchantName : null
+                      const maskedAccount = isPayout && tx.description
+                        ? tx.description.match(/\*{4}\d{4}/)?.[0]
+                        : null
 
-                  // Category display: legacy rows have no category — show a
-                  // muted 'uncategorized' rather than nothing or an error.
-                  const category = tx.merchantCategory?.trim()
-                  const blocked = isBlocked(tx)
+                      // Category display: legacy rows have no category — show a
+                      // muted 'uncategorized' rather than nothing or an error.
+                      const category = tx.merchantCategory?.trim()
+                      const blocked = isBlocked(tx)
 
-                  return (
-                    <div
-                      key={tx.id}
-                      onClick={() => setSelectedTx(tx)}
-                      className={`flex cursor-pointer items-center justify-between rounded-lg border p-4 hover:bg-accent ${
-                        blocked ? 'border-destructive bg-destructive/5' : ''
-                      }`}
-                    >
-                      <div className="flex-1">
-                        <p className="font-medium">
-                          {isPayout && recipientName 
-                            ? `Payout to ${recipientName}`
-                            : tx.merchantName || tx.description || `${tx.type} transaction`}
-                        </p>
-                        {isPayout && maskedAccount && (
-                          <p className="text-sm text-muted-foreground">
-                            Account: {maskedAccount}
-                          </p>
-                        )}
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(tx.createdAt).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        {/* Category badge: distinct when blocked, muted when
-                            absent (legacy rows), plain otherwise. */}
-                        <Badge
-                          variant="outline"
-                          className={
-                            blocked
-                              ? 'border-destructive text-destructive'
-                              : category
-                                ? ''
-                                : 'text-muted-foreground/60'
-                          }
+                      const agentName =
+                        tx.fromAccount?.agent?.name || tx.toAccount?.agent?.name || '—'
+
+                      return (
+                        <tr
+                          key={tx.id}
+                          onClick={() => setSelectedTx(tx)}
+                          className={`cursor-pointer border-b border-border/60 hover:bg-muted/40 ${
+                            blocked ? 'bg-destructive/5' : ''
+                          }`}
                         >
-                          {blocked ? `⛔ ${category}` : category || 'uncategorized'}
-                        </Badge>
-                        <Badge variant={isPayout ? 'default' : 'outline'}>
-                          {tx.type}
-                        </Badge>
-                        <Badge variant={
-                          tx.status === 'COMPLETED' ? 'default' : 
-                          tx.status === 'PENDING' ? 'secondary' :
-                          tx.status === 'FAILED' ? 'destructive' :
-                          'secondary'
-                        }>
-                          {tx.status}
-                        </Badge>
-                        <p className="font-medium">${parseFloat(tx.amount).toFixed(2)}</p>
-                      </div>
-                    </div>
-                  )
-                })}
+                          <td className="whitespace-nowrap px-4 py-2.5 text-xs text-muted-foreground">
+                            {fmtDate(tx.createdAt)}
+                          </td>
+                          <td className="max-w-[200px] px-4 py-2.5">
+                            <p className="truncate font-medium text-foreground">
+                              {isPayout && recipientName
+                                ? `Payout to ${recipientName}`
+                                : tx.merchantName || tx.description || `${tx.type} transaction`}
+                            </p>
+                            {isPayout && maskedAccount && (
+                              <p className="truncate text-xs text-muted-foreground font-num">{maskedAccount}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-foreground">{agentName}</td>
+                          <td className="px-4 py-2.5">
+                            <Badge
+                              variant="outline"
+                              className={
+                                blocked
+                                  ? 'border-destructive bg-red-50 text-destructive'
+                                  : category
+                                    ? 'border-border bg-muted/50 text-muted-foreground'
+                                    : 'border-transparent bg-transparent text-muted-foreground/50'
+                              }
+                            >
+                              {blocked ? `⛔ ${category}` : category || 'uncategorized'}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                            {tx.id.slice(0, 8)}…
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <StatusBadge status={tx.status} />
+                          </td>
+                          <td
+                            className={`px-4 py-2.5 text-right font-semibold font-num ${
+                              tx.type === 'INBOUND' ? 'text-emerald-600' : 'text-foreground'
+                            }`}
+                          >
+                            {tx.type === 'INBOUND' ? '+' : '-'}${parseFloat(tx.amount).toFixed(2)}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
 
-              <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center justify-between border-t border-border px-4 py-3">
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={() => setPage(page - 1)}
                   disabled={page === 1}
                 >
                   Previous
                 </Button>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   Page {page}
                 </span>
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={() => setPage(page + 1)}
                   disabled={!hasMore}
                 >

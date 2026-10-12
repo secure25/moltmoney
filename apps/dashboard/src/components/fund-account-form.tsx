@@ -8,9 +8,16 @@ import { Label } from '@/components/ui/label'
 
 interface FundAccountFormProps {
   accountId: string
+  /**
+   * Presentation variant only:
+   *  - default: inline form (original layout)
+   *  - compact: single-line amount + button for page headers
+   * Both submit identically to POST /accounts/:id/fund.
+   */
+  variant?: 'default' | 'compact'
 }
 
-export function FundAccountForm({ accountId }: FundAccountFormProps) {
+export function FundAccountForm({ accountId, variant = 'default' }: FundAccountFormProps) {
   const router = useRouter()
   const [amount, setAmount] = useState('')
   const [loading, setLoading] = useState(false)
@@ -48,6 +55,39 @@ export function FundAccountForm({ accountId }: FundAccountFormProps) {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (variant === 'compact') {
+    return (
+      <form onSubmit={handleSubmit} className="flex flex-col items-end gap-1.5">
+        {error && (
+          <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">{error}</div>
+        )}
+        <div className="flex items-center gap-2">
+          <Input
+            id="amount"
+            type="number"
+            step="0.01"
+            min="0.01"
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            required
+            disabled={loading}
+            aria-label="Fund amount"
+            className="h-9 w-28"
+          />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={loading}
+            className="gradient-primary text-white border-0 hover:opacity-90 transition-opacity"
+          >
+            {loading ? 'Processing…' : 'Fund account'}
+          </Button>
+        </div>
+      </form>
+    )
   }
 
   return (

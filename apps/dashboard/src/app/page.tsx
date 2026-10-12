@@ -1,26 +1,25 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import { ArrowRight, Shield, Zap, Globe, Sparkles } from 'lucide-react'
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-purple-50 to-amber-50">
+    <div className="min-h-screen bg-white">
       {/* Navigation */}
-      <nav className="fixed top-0 w-full z-50 glass border-b border-white/20">
+      <nav className="fixed top-0 w-full z-50 glass border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20">
-            <div className="flex items-center space-x-2">
-              <div className="w-10 h-10 rounded-xl gradient-premium flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-2xl font-bold text-gradient">MoltMoney</span>
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center gap-2">
+              <Image src="/moltmoney-icon.png" alt="" width={32} height={32} className="h-8 w-8" priority />
+              <span className="text-xl font-bold tracking-tight text-foreground">MoltMoney</span>
             </div>
-            <div className="flex items-center space-x-8">
-              <Link href="/auth/login" className="text-sm font-medium text-gray-700 hover:text-purple-600 transition-colors">
+            <div className="flex items-center space-x-4">
+              <Link href="/auth/login" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
                 Login
               </Link>
               <Link 
                 href="/auth/register" 
-                className="px-6 py-2.5 rounded-xl gradient-primary text-white font-medium hover:shadow-lg hover:shadow-purple-500/50 transition-all duration-300"
+                className="px-5 py-2 rounded-lg gradient-primary text-white text-sm font-semibold hover:opacity-90 transition-opacity"
               >
                 Get Started
               </Link>
@@ -30,12 +29,12 @@ export default function Home() {
       </nav>
 
       {/* Hero Section */}
-      <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8">
+      <section className="pt-28 pb-16 px-4 sm:px-6 lg:px-8 bg-[hsl(248,50%,99%)]">
         <div className="max-w-7xl mx-auto">
           <div className="text-center space-y-8">
-            <div className="inline-flex items-center space-x-2 px-4 py-2 rounded-full glass border border-purple-200/50">
-              <Sparkles className="w-4 h-4 text-purple-600" />
-              <span className="text-sm font-medium text-purple-900">The Future of AI Banking</span>
+            <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-white border border-border shadow-sm">
+              <Sparkles className="w-4 h-4 text-primary" />
+              <span className="text-xs font-semibold text-foreground">The Future of AI Banking</span>
             </div>
             
             <h1 className="text-6xl md:text-7xl lg:text-8xl font-bold tracking-tight">
@@ -44,7 +43,7 @@ export default function Home() {
               <span className="text-gray-900">for AI Agents</span>
             </h1>
             
-            <p className="text-xl md:text-2xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+            <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
               Empower your AI agents with sophisticated financial infrastructure. 
               Secure, scalable, and built for the autonomous economy.
             </p>
@@ -52,14 +51,14 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
               <Link 
                 href="/auth/register"
-                className="group px-8 py-4 rounded-xl gradient-primary text-white font-semibold text-lg hover:shadow-2xl hover:shadow-purple-500/50 transition-all duration-300 flex items-center space-x-2"
+                className="group px-7 py-3.5 rounded-lg gradient-primary text-white font-semibold text-lg hover:opacity-90 transition-opacity flex items-center space-x-2"
               >
                 <span>Start Building</span>
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link 
                 href="#features"
-                className="px-8 py-4 rounded-xl glass border border-purple-200/50 text-gray-900 font-semibold text-lg hover:border-purple-300 transition-all duration-300"
+                className="px-7 py-3.5 rounded-lg bg-white border border-border text-foreground font-semibold text-lg hover:border-foreground/30 transition-colors"
               >
                 Learn More
               </Link>
@@ -152,13 +151,11 @@ export default function Home() {
       {/* Footer */}
       <footer className="py-12 px-4 sm:px-6 lg:px-8 border-t border-gray-200">
         <div className="max-w-7xl mx-auto text-center">
-          <div className="flex items-center justify-center space-x-2 mb-4">
-            <div className="w-8 h-8 rounded-lg gradient-premium flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-bold text-gradient">MoltMoney</span>
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <Image src="/moltmoney-icon.png" alt="" width={24} height={24} className="h-6 w-6" />
+            <span className="text-lg font-bold tracking-tight text-foreground">MoltMoney</span>
           </div>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             © 2026 MoltMoney. Premium banking for the autonomous economy.
           </p>
         </div>
