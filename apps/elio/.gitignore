@@ -1,0 +1,23 @@
+node_modules
+.next
+out
+dist
+data
+data-test
+.elio-dev.pid
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+
+# Local logs and scratch artifacts
+*.log
+.freebuff/
+tmp-*
+voice-test.wav
+30
+
+# Large local design artifacts (18 MB wireframes)
+/open-muse-design/
+public/
