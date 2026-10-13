@@ -256,3 +256,31 @@ npm run typecheck      # tsc --noEmit
 npm run setup:browser  # optional Chromium for the browser agent
 npm run setup:voice    # optional Piper neural TTS (male en_US-ryan-medium, ~63 MB)
 ```
+
+## Living in the MoltMoney monorepo
+
+Elio ships as `apps/elio` inside the [MoltMoney monorepo](../../README.md) —
+the banking platform it (optionally) spends through. The quickstart above
+works as-is from this directory (it has its own `package.json`, SQLite
+database, and `.env`).
+
+### Connecting Elio to MoltMoney (optional, money tools)
+
+Create an agent in the MoltMoney dashboard; it issues a one-time,
+account-scoped API key. Then in `apps/elio/.env`:
+
+```
+MOLTMONEY_API_URL=http://localhost:3000
+MOLTMONEY_API_KEY=mm_…            # agent-scoped bearer token
+MOLTMONEY_ACCOUNT_ID=<uuid>       # the AGENT account (keys are account-scoped)
+```
+
+Every MoltMoney money-moving tool (`moltmoney_create_paypal_order`,
+`moltmoney_capture_paypal_order`, `moltmoney_send_payment`, …) is
+**Sentinel-gated**: pending approvals surface as cards in this app *and* are
+pushed to the MoltMoney dashboard / Telegram with Approve/Decline buttons.
+`MOLTMONEY_ENABLED=false` unregisters all MoltMoney tools (kill switch).
+
+## License
+
+MIT — see the root [LICENSE](../../LICENSE).
