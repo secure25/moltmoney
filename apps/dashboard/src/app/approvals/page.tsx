@@ -15,6 +15,7 @@ interface Transaction {
   merchantName?: string
   merchantCategory?: string | null
   createdAt: string
+  approvedAt?: string | null
   approvalUrl?: string | null
   providerRefId?: string | null
   fromAccount?: {
@@ -71,20 +72,24 @@ export default function ApprovalsPage() {
         .find((row) => row.startsWith('token='))
         ?.split('=')[1]
 
-      // Fetch pending transactions
-      const txResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/transactions?status=PENDING&approvalRequired=true`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      )
+      // Fetch transactions awaiting owner approval. Two states qualify:
+      // PENDING (nobody has acted yet) and APPROVED-without-approvedAt — a
+      // PayPal checkout order whose payer has already paid but whose owner has
+      // not, which happens whenever someone clicks "Pay on PayPal" first. Both
+      // need an Approve/Decline decision, so both belong in this queue.
+      const auth = { headers: { Authorization: `Bearer ${token}` } }
+      const [pendingResponse, payerApprovedResponse] = await Promise.all([
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/transactions?status=PENDING&approvalRequired=true`, auth),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/transactions?status=APPROVED&approvalRequired=true`, auth),
+      ])
 
-      if (txResponse.ok) {
-        const txData = await txResponse.json()
-        setTransactions(txData.data || [])
-      }
+      const pendingTxs: Transaction[] = pendingResponse.ok
+        ? (await pendingResponse.json()).data || []
+        : []
+      const payerApprovedTxs: Transaction[] = payerApprovedResponse.ok
+        ? ((await payerApprovedResponse.json()).data || []).filter((tx: Transaction) => !tx.approvedAt)
+        : []
+      setTransactions([...pendingTxs, ...payerApprovedTxs])
 
       // Fetch pending payment requests
       const prResponse = await fetch(
@@ -256,9 +261,12 @@ export default function ApprovalsPage() {
         tx.merchantCategory?.trim()
           ? `${tx.merchantCategory.trim()} (category requires approval)`
           : 'Spending policy (pending owner approval)',
-      additionalContext: tx.toAccount?.agent?.name
-        ? `Recipient account: ${tx.toAccount.agent.name}`
-        : '—',
+      additionalContext:
+        tx.status === 'APPROVED'
+          ? 'Payer already approved on PayPal — your approval unlocks capture'
+          : tx.toAccount?.agent?.name
+            ? `Recipient account: ${tx.toAccount.agent.name}`
+            : '—',
       // PayPal checkout orders carry a sandbox approval URL the owner must
       // open to approve the payment; null for internal transfers.
       approvalUrl: tx.approvalUrl ?? null,

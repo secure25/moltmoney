@@ -184,6 +184,7 @@ export async function paymentRoutes(server: FastifyInstance) {
               id: str, amount: decStr, type: str, status: str, approvedAt: nullable(DATE_TIME),
             }, required: ['id', 'amount', 'type', 'status'] },
           }, required: ['transaction'] },
+          400: errorResponse(),
           403: errorResponse(),
           404: errorResponse(),
         },
@@ -225,7 +226,21 @@ export async function paymentRoutes(server: FastifyInstance) {
         });
       }
 
-      const approvedTransaction = await paymentService.approvePayment(id, owner.id);
+      // Business-state failures (already completed, declined, not awaiting
+      // approval) are client errors — surface them as 400 with the reason
+      // instead of an opaque 500.
+      let approvedTransaction;
+      try {
+        approvedTransaction = await paymentService.approvePayment(id, owner.id);
+      } catch (error) {
+        return reply.status(400).send({
+          error: {
+            code: 'PAYMENT_NOT_APPROVABLE',
+            message: (error as Error).message || 'Transaction cannot be approved',
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
 
       // Audit: owner approval decision (security-relevant control action).
       await new AuditService(server.prisma).record({

@@ -815,8 +815,17 @@ export class PaymentService {
       throw new Error('Transaction not found');
     }
 
-    // Verify transaction is pending
-    if (transaction.status !== TxStatus.PENDING) {
+    // Verify transaction is pending. A PayPal checkout order can already be
+    // APPROVED here: PayPal's CHECKOUT.ORDER.APPROVED webhook lands as soon as
+    // the payer pays, which can happen *before* the owner approves (the normal
+    // order for someone who clicks "Pay on PayPal" first). Owner approval still
+    // has to be recordable in that state — otherwise the row drops out of the
+    // approvals queue while capture stays blocked forever.
+    const isPayPalCheckout = transaction.providerName === 'paypal';
+    const approvableStatus =
+      transaction.status === TxStatus.PENDING ||
+      (isPayPalCheckout && transaction.status === TxStatus.APPROVED);
+    if (!approvableStatus) {
       throw new Error('Transaction is not pending');
     }
 
@@ -829,7 +838,7 @@ export class PaymentService {
     // PayPal checkout orders are completed by the provider capture flow, not
     // by owner approval. Owner approval only unlocks capture — never deduct
     // the balance here, or the ledger and PayPal would diverge.
-    if (transaction.providerName === 'paypal') {
+    if (isPayPalCheckout) {
       const approved = await this.prisma.transaction.updateMany({
         where: { id: transactionId, status: { in: [TxStatus.PENDING, TxStatus.APPROVED] } },
         data: { approvedAt: new Date() },

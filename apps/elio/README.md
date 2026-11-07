@@ -35,9 +35,10 @@ feature works without it.
 - **SQLite via `node:sqlite`** — no native compilation needed
 - **LLM: pluggable adapter with automatic failover**
   - default: **Google Gemini** free tier (`gemini-flash-latest` alias, free API key from AI Studio)
-  - one-line swap: **Groq**, **OpenRouter**, **AgentRouter**, **APInex** or **Qwen** — every
-    OpenAI-compatible gateway is supported, and a provider that hits a quota wall or
-    runs out of credit cascades to the next configured one instead of failing the task
+  - one-line swap: **Groq**, **OpenRouter**, **AgentRouter**, **APInex**, **CodeCraft**,
+    **Clean APIs** or **Qwen** — every OpenAI-compatible gateway is supported, and a
+    provider that hits a quota wall or runs out of credit cascades to the next configured
+    one instead of failing the task
 - **Real integrations**: Gmail + Google Calendar (hand-rolled OAuth 2.0, REST), live web
   (fetch + DuckDuckGo search), real browser (Playwright)
 
@@ -60,6 +61,23 @@ GEMINI_API_KEY=your-key
 
 Prefer Groq or OpenRouter free models instead? Set `LLM_PROVIDER=groq` (+ `GROQ_API_KEY`)
 or `LLM_PROVIDER=openrouter` (+ `OPENROUTER_API_KEY`).
+
+A paid gateway (AgentRouter, APInex, CodeCraft, Clean APIs) plugs in the same way: set
+`LLM_PROVIDER` plus its key — and, for the gateways whose host is account-specific, the
+base URL it gives you. **AgentRouter quirks**, both handled by the adapter:
+
+- its models are served only through the OpenAI **Responses** API (`/v1/responses`), so
+  `/v1/chat/completions` answers "model … does not support /v1/chat/completions";
+- it rejects unrecognised HTTP clients with `401 unauthorized client detected` *before*
+  it checks the key, so the adapter sends a Claude-CLI-style `User-Agent`
+  (`AGENTROUTER_USER_AGENT` to override).
+
+```
+LLM_PROVIDER=agentrouter
+AGENTROUTER_API_KEY=sk-…
+AGENTROUTER_BASE_URL=https://agentrouter.org/v1
+AGENTROUTER_MODEL=gpt-5.6-sol        # any model your account can reach (GET /v1/models)
+```
 
 ### 2. Vault secret (required)
 

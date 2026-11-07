@@ -237,6 +237,41 @@ describe('PaymentService - PayPal checkout flow', () => {
       expect(new Decimal(account.balance.toString()).toString()).toBe('100');
     });
 
+    it('lets the owner approve and capture an order the payer approved first', async () => {
+      // The payer can clear gate 2 before the owner clears gate 1 — a hosted
+      // PayPal checkout makes that easy to do, and it used to leave the row
+      // unapprovable (status APPROVED is not PENDING), so capture was blocked
+      // forever with no action available anywhere in the UI.
+      await accountService.updateSpendingRules(accountId, {
+        requireApprovalAbove: '10.00',
+      });
+      const { transaction } = await paymentService.createCheckoutOrder(
+        accountId,
+        new Decimal('25.00')
+      );
+
+      await paymentService.handleProviderWebhook({
+        type: WebhookEventType.PAYMENT_APPROVED,
+        data: {
+          category: 'order_approved',
+          eventType: 'CHECKOUT.ORDER.APPROVED',
+          resource: { id: transaction.providerRefId },
+        },
+        timestamp: new Date(),
+      });
+      const payerApproved = await prisma.transaction.findUnique({ where: { id: transaction.id } });
+      expect(payerApproved.status).toBe('APPROVED');
+
+      const ownerApproved = await paymentService.approvePayment(transaction.id, testOwnerId);
+      expect(ownerApproved.approvedAt).toBeTruthy();
+
+      const completed = await paymentService.captureCheckoutOrder(transaction.id);
+      expect(completed.status).toBe('COMPLETED');
+      expect(completed.providerMetadata.captureId).toBeTruthy();
+      const account = await accountService.getAccount(accountId);
+      expect(new Decimal(account.balance.toString()).toString()).toBe('75');
+    });
+
     it('marks a capture-denied webhook as DECLINED without moving money', async () => {
       const { transaction } = await paymentService.createCheckoutOrder(
         accountId,

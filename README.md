@@ -51,9 +51,17 @@ Code: [`providers/paypal/paypal-client.ts`](apps/api/src/providers/paypal/paypal
 
 Both demos use the same login and are wired to the **same demo money account** — the
 `Elio` agent account with a $100/day, $60/transaction policy, approval above $20 and
-`gambling`/`crypto` blocked. The demo already contains a completed $12 book purchase and
-one **PayPal order waiting for your approval**, so the whole loop can be exercised in
-under a minute.
+`gambling`/`crypto` blocked. The demo already contains, so the whole loop can be
+exercised in under a minute:
+
+- a **completed $12 book purchase** with its PayPal order and capture ids,
+- a **$45 PayPal order waiting for your approval** (a live `Pay on PayPal` link), and
+- a **$25 order whose payer already approved on PayPal** — approve it in **Approvals**
+  to unlock **Capture payment** in the transaction view.
+
+Clearing the PayPal step first is fine: a payer-approved order stays in **Approvals**
+(marked *“Payer already approved on PayPal — your approval unlocks capture”*), so the
+owner gate is never skipped by paying early.
 
 **Telegram is optional.** Approval cards appear in the MoltMoney dashboard by default; a
 Telegram bot only *adds* a second place to approve from. Nothing in the demo requires it.
@@ -80,13 +88,21 @@ pending, and it appears in **two places**:
 
 **You need a PayPal sandbox buyer account to clear gate 2.** That is PayPal's login
 screen, not ours — there is no way to approve a hosted-checkout order without signing in
-as the payer. Sandbox buyer accounts are disposable and hold no real money:
+as the payer.
 
-- **Make one (30 seconds):** <https://developer.paypal.com/dashboard/accounts> →
-  **Sandbox** → **Create account** → type **Personal** → then sign in with those
-  credentials on the PayPal page. Sandbox buyers are fake: no card, no real money.
-- Sandbox buyer logins are disposable test credentials, safe to publish in a submission
-  or hand to a judge — they expose no real account and move no real money.
+**Use the demo sandbox buyer — no setup needed:**
+
+```
+email:    sb-43yb0j53447783@personal.example.com
+password: ;#;6c;Z;
+```
+
+That is a disposable **sandbox Personal** account: no card, no bank, no real money, and
+nothing it can reach outside `sandbox.paypal.com`. Sign in with it on the PayPal page
+that **Pay on PayPal** opens, then click **Pay Now** / **Complete Purchase**. (It is a
+shared demo login — if someone has changed its password, make your own in 30 seconds:
+<https://developer.paypal.com/dashboard/accounts> → **Sandbox** → **Create account** →
+type **Personal**, and use those credentials on the same page.)
 
 With no sandbox buyer at all, the loop still works up to gate 2: the order is created, the
 approval URL loads PayPal's login page, and the dashboard shows the PENDING transaction
