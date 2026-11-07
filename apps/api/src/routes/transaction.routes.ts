@@ -32,6 +32,7 @@ function transactionItem() {
       // The URL is public-facing (sandbox.paypal.com/checkoutnow?token=…) —
       // the owner is the one who must open it to approve the payment.
       providerRefId: nullable(str),
+      providerName: nullable(str),
       approvalUrl: nullable(str),
     },      required: ['id', 'amount', 'currency', 'type', 'status', 'fromAccountId', 'approvalRequired', 'createdAt'],
   };
@@ -244,6 +245,7 @@ export async function transactionRoutes(server: FastifyInstance) {
           approvedAt: tx.approvedAt,
           createdAt: tx.createdAt,
           providerRefId: tx.providerRefId,
+          providerName: tx.providerName,
           approvalUrl: (tx.providerMetadata as any)?.approvalUrl ?? null,
         })),
         total,
@@ -362,6 +364,7 @@ export async function transactionRoutes(server: FastifyInstance) {
         approvedAt: transaction.approvedAt,
         createdAt: transaction.createdAt,
         providerRefId: transaction.providerRefId,
+        providerName: transaction.providerName,
         approvalUrl: (transaction.providerMetadata as any)?.approvalUrl ?? null,
       });
     }
