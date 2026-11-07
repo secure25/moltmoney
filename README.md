@@ -85,9 +85,8 @@ as the payer. Sandbox buyer accounts are disposable and hold no real money:
 - **Make one (30 seconds):** <https://developer.paypal.com/dashboard/accounts> →
   **Sandbox** → **Create account** → type **Personal** → then sign in with those
   credentials on the PayPal page. Sandbox buyers are fake: no card, no real money.
-- The MoltMoney dashboard's own sandbox app already has one (the `Personal` account in
-  the same PayPal Developer account that owns the client id); its email and password are
-  shown there under **Testing Tools → Sandbox Accounts**.
+- Sandbox buyer logins are disposable test credentials, safe to publish in a submission
+  or hand to a judge — they expose no real account and move no real money.
 
 With no sandbox buyer at all, the loop still works up to gate 2: the order is created, the
 approval URL loads PayPal's login page, and the dashboard shows the PENDING transaction
@@ -108,8 +107,10 @@ Nothing in this repo touches a live PayPal account or moves real money.
 - **MoltMoney dashboard** — <https://moltmoneydashboard-production.up.railway.app>
 - **Elio** — <https://elio-production-9b75.up.railway.app/landing>
 
-Both hosted apps run against the PayPal **sandbox**. Prefer to run everything yourself?
-The quickstart below needs no Docker, no PayPal keys and no paid services.
+The hosted MoltMoney API runs against the PayPal **sandbox** (`PAYMENT_PROVIDER=paypal`,
+`https://api-m.sandbox.paypal.com`); Elio talks to MoltMoney, never to PayPal. Prefer to
+run everything yourself? The quickstart below needs no Docker, no PayPal keys and no paid
+services.
 
 ```
 ┌──────────┐  chat/tasks  ┌──────────────┐  REST + agent keys + Sentinel  ┌────────────┐  Orders v2 (sandbox)  ┌──────────┐

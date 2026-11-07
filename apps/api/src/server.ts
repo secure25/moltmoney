@@ -125,6 +125,21 @@ export async function buildServer(options: ServerOptions): Promise<FastifyInstan
       });
     }
 
+    // Handle malformed client requests (bad JSON, a body whose byte length
+    // does not match Content-Length — e.g. curl on Windows sending a non-UTF-8
+    // dash — or an unsupported content type). Fastify already tagged these with
+    // a 4xx; a blanket 500 would blame the server for the caller's bytes.
+    const clientStatus = (error as any).statusCode;
+    if (typeof clientStatus === 'number' && clientStatus >= 400 && clientStatus < 500) {
+      return reply.status(clientStatus).send({
+        error: {
+          code: (error as any).code || 'BAD_REQUEST',
+          message: error.message,
+          timestamp,
+        },
+      });
+    }
+
     // Handle Prisma unique constraint violations
     if ((error as any).code === 'P2002') {
       return reply.status(400).send({

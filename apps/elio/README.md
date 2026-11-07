@@ -295,6 +295,13 @@ Every MoltMoney money-moving tool (`moltmoney_create_paypal_order`,
 pushed to the MoltMoney dashboard / Telegram with Approve/Decline buttons.
 `MOLTMONEY_ENABLED=false` unregisters all MoltMoney tools (kill switch).
 
+A purchase ends in **PayPal**, not in this chat. `moltmoney_create_paypal_order`
+returns a live `sandbox.paypal.com/checkoutnow?token=…` URL, which Elio prints in
+its reply ("NEXT STEP — the USER must open this…"). The same URL is on the
+MoltMoney **Approvals** card and in the transaction's dialog, so either surface
+works. Opening it asks you to sign in as a PayPal **sandbox buyer** — that payer
+approval is PayPal's, not ours — and only then does capture settle the order.
+
 ## License
 
 MIT — see the root [LICENSE](../../LICENSE).
