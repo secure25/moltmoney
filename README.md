@@ -36,8 +36,9 @@ Code: [`providers/paypal/paypal-client.ts`](apps/api/src/providers/paypal/paypal
 2. **MoltMoney decides.** The policy engine (per-transaction limit, daily budget,
    blocked categories, approval threshold) classifies the request as allow / ask /
    deny. Anything above the threshold becomes a **Sentinel approval** in the dashboard.
-3. **PayPal creates the order.** Once approved, MoltMoney calls Orders v2 and returns
-   the PayPal approval URL. The human completes checkout in the PayPal sandbox.
+3. **PayPal creates the order.** MoltMoney calls Orders v2 and gets back the PayPal order
+   id plus the `sandbox.paypal.com/checkoutnow?token=…` approval URL. The owner clears
+   the MoltMoney hold, then the payer approves on PayPal's own page.
 4. **Capture + webhook close the loop.** MoltMoney captures the order, verifies the
    signed PayPal webhook, settles the ledger and the receipt lands back in Elio's chat.
 
@@ -51,12 +52,56 @@ Code: [`providers/paypal/paypal-client.ts`](apps/api/src/providers/paypal/paypal
 Both demos use the same login and are wired to the **same demo money account** — the
 `Elio` agent account with a $100/day, $60/transaction policy, approval above $20 and
 `gambling`/`crypto` blocked. The demo already contains a completed $12 book purchase and
-one payment **waiting for your approval**, so the whole loop can be exercised in under a
-minute. Everything is simulated apart from the PayPal sandbox orders themselves; there is
-no real money and no personal data behind these accounts.
+one **PayPal order waiting for your approval**, so the whole loop can be exercised in
+under a minute.
 
 **Telegram is optional.** Approval cards appear in the MoltMoney dashboard by default; a
 Telegram bot only *adds* a second place to approve from. Nothing in the demo requires it.
+
+### How the PayPal payment is approved — the two gates
+
+A purchase needs **two separate approvals**, and both are PayPal-shaped:
+
+| Gate | Who approves | Where | What it gates |
+|---|---|---|---|
+| **1. Owner approval (Sentinel)** | The demo owner | MoltMoney → **Approvals** | Whether the spend is allowed at all. Until it is approved, `capture` is refused server-side (`approvalRequired && !approvedAt`). |
+| **2. PayPal payer approval** | The buyer, on PayPal's own page | `sandbox.paypal.com/checkoutnow?token=…` | Whether PayPal releases the money. PayPal rejects capture of an unapproved order. |
+
+**An approval-pending purchase already has a PayPal order.** The policy engine runs
+first: a **deny** (blocked category, over the per-transaction limit, over the daily
+budget) stops the request before PayPal is ever called. An **ask** verdict — the usual
+"above $20" case — still creates the Orders v2 order, and only the *capture* is held
+until the owner approves. That is why the approval URL exists while the spend is still
+pending, and it appears in **two places**:
+
+- in **Elio's chat reply** (`NEXT STEP — open this PayPal approval URL…`), and
+- on the **Approvals** page in the dashboard, as a **Pay on PayPal** button on the review
+  card (shown whenever the transaction has a PayPal order behind it).
+
+**You need a PayPal sandbox buyer account to clear gate 2.** That is PayPal's login
+screen, not ours — there is no way to approve a hosted-checkout order without signing in
+as the payer. Sandbox buyer accounts are disposable and hold no real money:
+
+- **Make one (30 seconds):** <https://developer.paypal.com/dashboard/accounts> →
+  **Sandbox** → **Create account** → type **Personal** → then sign in with those
+  credentials on the PayPal page. Sandbox buyers are fake: no card, no real money.
+- The MoltMoney dashboard's own sandbox app already has one (the `Personal` account in
+  the same PayPal Developer account that owns the client id); its email and password are
+  shown there under **Testing Tools → Sandbox Accounts**.
+
+With no sandbox buyer at all, the loop still works up to gate 2: the order is created, the
+approval URL loads PayPal's login page, and the dashboard shows the PENDING transaction
+with its PayPal order id. Capture only succeeds after a payer approves.
+
+### What is real and what is simulated
+
+| Real | Simulated |
+|---|---|
+| **PayPal sandbox Orders v2** — create, capture, webhooks, OAuth tokens, signature verification | Account balances and the $12/$25 amounts (play money, no real funds) |
+| PayPal order ids, approval URLs, capture ids and webhook event ids on the ledger | Merchants (`Corner Bookstore`) and the agents' identities |
+| The owner-approval gate blocking `capture` server-side | Telegram delivery (optional, off by default) |
+
+Nothing in this repo touches a live PayPal account or moves real money.
 
 ## Live demo (no install)
 
@@ -209,19 +254,25 @@ Run this against the hosted demo or a local stack; the steps are identical.
 
 1. **Open the dashboard** <https://moltmoneydashboard-production.up.railway.app> and
    click **Explore the demo account**. You land on the ledger with a completed
-   purchase and one approval waiting.
+   purchase and one pending PayPal order.
 2. **See the policy in action.** Open the **Elio** agent: $100/day, $60/transaction,
    approval above $20, `gambling` and `crypto` blocked. This is the gate that sits in
    front of PayPal.
-3. **Approve the payment** on the Approvals page. MoltMoney now calls
-   `POST /v2/checkout/orders` — the response contains the **PayPal order id** and the
-   `sandbox.paypal.com/checkoutnow?token=…` approval URL.
-4. **Complete the PayPal checkout.** Sign in to the PayPal sandbox with a *sandbox
-   Personal* account and approve. (Need one? developer.paypal.com → Testing Tools →
-   Sandbox Accounts. It is a fake buyer — no real money.)
-5. **Watch the capture and webhook.** PayPal redirects back, MoltMoney captures the
-   order, verifies the signed webhook and marks the transaction `COMPLETED`. The
-   ledger row carries the PayPal order id and capture id.
+3. **Open Approvals.** The pending card is a live **PayPal sandbox order**: it shows the
+   `Pay on PayPal` button and the PayPal order id, because MoltMoney already called
+   `POST /v2/checkout/orders` when Elio asked to buy the book. Approve it here to clear
+   gate 1 — MoltMoney's own hold — which is what unlocks `capture`.
+4. **Clear gate 2 on PayPal.** Click **Pay on PayPal** (`sandbox.paypal.com/checkoutnow?token=…`)
+   and sign in with a **sandbox Personal** account (see above to make one in 30s). Click
+   through the sandbox checkout to approve. This is PayPal's own page and PayPal's own
+   approval — nothing about it is mocked.
+5. **Capture and settle.** Open the transaction in **Transactions** and press
+   **Capture payment** (or tell Elio to capture it, or
+   `POST /payments/paypal/orders/{id}/capture`). MoltMoney calls Orders v2 capture,
+   PayPal reports `PAYMENT.CAPTURE.COMPLETED` on the signed webhook, and the row turns
+   `COMPLETED` with the PayPal order id and capture id on the ledger. The webhook — not
+   the HTTP response — is treated as the source of truth, so a duplicate delivery cannot
+   settle twice.
 6. **Call it from the API**, exactly like an agent would:
 
    ```bash

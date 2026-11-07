@@ -26,6 +26,13 @@ function transactionItem() {
       approvalRequired: { type: 'boolean' },
       approvedAt: nullable(DATE_TIME),
       createdAt: DATE_TIME,
+      // PayPal order reference + payer-approval URL. Populated for checkout
+      // orders created through Orders v2 (see POST /payments/paypal/orders);
+      // null for internal transfers and payments with no provider order.
+      // The URL is public-facing (sandbox.paypal.com/checkoutnow?token=…) —
+      // the owner is the one who must open it to approve the payment.
+      providerRefId: nullable(str),
+      approvalUrl: nullable(str),
     },      required: ['id', 'amount', 'currency', 'type', 'status', 'fromAccountId', 'approvalRequired', 'createdAt'],
   };
 }
@@ -236,6 +243,8 @@ export async function transactionRoutes(server: FastifyInstance) {
           approvalRequired: tx.approvalRequired,
           approvedAt: tx.approvedAt,
           createdAt: tx.createdAt,
+          providerRefId: tx.providerRefId,
+          approvalUrl: (tx.providerMetadata as any)?.approvalUrl ?? null,
         })),
         total,
         page,
@@ -352,6 +361,8 @@ export async function transactionRoutes(server: FastifyInstance) {
         approvalRequired: transaction.approvalRequired,
         approvedAt: transaction.approvedAt,
         createdAt: transaction.createdAt,
+        providerRefId: transaction.providerRefId,
+        approvalUrl: (transaction.providerMetadata as any)?.approvalUrl ?? null,
       });
     }
   );

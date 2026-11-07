@@ -22,6 +22,7 @@ interface Transaction {
   merchantCategory?: string | null
   providerName?: string | null
   providerRefId?: string | null
+  approvalUrl?: string | null
   createdAt: string
   fromAccount?: { agent?: { name: string } }
   toAccount?: { agent?: { name: string } }
@@ -46,6 +47,36 @@ export default function TransactionsPage() {
   const [endDate, setEndDate] = useState('')
 
   const pageSize = 20
+
+  // Capture is the moment PayPal actually moves the money. The API refuses it
+  // until the owner has approved the spend AND PayPal reports the order as
+  // payer-approved, so this button is safe to expose to the owner.
+  const [capturing, setCapturing] = useState(false)
+  const handleCapture = async (orderId: string) => {
+    const token = document.cookie
+      .split('; ')
+      .find((row) => row.startsWith('token='))
+      ?.split('=')[1]
+    setCapturing(true)
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/payments/paypal/orders/${orderId}/capture`,
+        { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data?.error?.message || 'PayPal capture failed')
+        return
+      }
+      setSelectedTx(null)
+      void fetchTransactions()
+    } catch (error) {
+      console.error('PayPal capture failed:', error)
+      alert('PayPal capture failed')
+    } finally {
+      setCapturing(false)
+    }
+  }
 
   useEffect(() => {
     void fetchTransactions()
@@ -485,6 +516,34 @@ export default function TransactionsPage() {
                   </p>
                 </div>
               )}
+              {selectedTx.providerName?.toLowerCase() === 'paypal' &&
+                selectedTx.providerRefId &&
+                (selectedTx.status === 'PENDING' || selectedTx.status === 'APPROVED') && (
+                  <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                    <Label>PayPal order</Label>
+                    {selectedTx.approvalUrl && (
+                      <a
+                        href={selectedTx.approvalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                      >
+                        Open PayPal checkout
+                      </a>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Approve the order as the payer on PayPal, then capture it here to settle
+                      the ledger.
+                    </p>
+                    <Button
+                      size="sm"
+                      disabled={capturing}
+                      onClick={() => handleCapture(selectedTx.providerRefId!)}
+                    >
+                      {capturing ? 'Capturing…' : 'Capture payment'}
+                    </Button>
+                  </div>
+                )}
               <div>
                 <Label>Created At</Label>
                 <p>{new Date(selectedTx.createdAt).toLocaleString()}</p>

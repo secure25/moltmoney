@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Bell } from 'lucide-react'
+import { Bell, ExternalLink } from 'lucide-react'
 
 interface Transaction {
   id: string
@@ -15,6 +15,8 @@ interface Transaction {
   merchantName?: string
   merchantCategory?: string | null
   createdAt: string
+  approvalUrl?: string | null
+  providerRefId?: string | null
   fromAccount?: {
     id: string
     agent?: { name: string }
@@ -38,8 +40,8 @@ interface PaymentRequest {
 }
 
 type PendingItem =
-  | { kind: 'fund-request'; id: string; title: string; agent: string; amount: string; currency: string; date: string; detail: string; payee: string; purpose: string; ruleTriggered: string; additionalContext: string }
-  | { kind: 'payment'; id: string; title: string; agent: string; amount: string; currency: string; date: string; detail: string; payee: string; purpose: string; ruleTriggered: string; additionalContext: string }
+  | { kind: 'fund-request'; id: string; title: string; agent: string; amount: string; currency: string; date: string; detail: string; payee: string; purpose: string; ruleTriggered: string; additionalContext: string; approvalUrl: string | null }
+  | { kind: 'payment'; id: string; title: string; agent: string; amount: string; currency: string; date: string; detail: string; payee: string; purpose: string; ruleTriggered: string; additionalContext: string; approvalUrl: string | null }
 
 export default function ApprovalsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -257,6 +259,9 @@ export default function ApprovalsPage() {
       additionalContext: tx.toAccount?.agent?.name
         ? `Recipient account: ${tx.toAccount.agent.name}`
         : '—',
+      // PayPal checkout orders carry a sandbox approval URL the owner must
+      // open to approve the payment; null for internal transfers.
+      approvalUrl: tx.approvalUrl ?? null,
     })),
     ...paymentRequests.map((pr): PendingItem => ({
       kind: 'fund-request',
@@ -271,6 +276,7 @@ export default function ApprovalsPage() {
       purpose: pr.description || '—',
       ruleTriggered: 'Fund request approval',
       additionalContext: `Expires ${new Date(pr.expiresAt).toLocaleString()}`,
+      approvalUrl: null,
     })),
   ]
 
@@ -443,6 +449,27 @@ export default function ApprovalsPage() {
                       <span className="font-mono text-xs text-muted-foreground">{selected.detail}</span>
                     </div>
                   </div>
+
+                  {/* PayPal checkpoint. MoltMoney already created the Orders v2
+                      order, so this link is the live sandbox checkout the owner
+                      opens after approving the spend here. */}
+                  {selected.approvalUrl && (
+                    <div className="rounded-lg border border-primary/30 bg-[hsl(222,40%,98%)] p-3">
+                      <p className="text-xs font-semibold text-foreground">PayPal order created</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Approving below releases the owner hold. Then pay on PayPal
+                        with a sandbox buyer account to approve the order itself.
+                      </p>
+                      <a
+                        href={selected.approvalUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                      >
+                        Pay on PayPal <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
 
                   {/* Exact existing handlers, disabled states, and alerts preserved */}
                   <div className="flex gap-2 pt-1">
