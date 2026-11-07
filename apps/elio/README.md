@@ -17,6 +17,18 @@ negotiates — with Muse's signature safety architecture rebuilt end-to-end:
 | Works after you close the app | Tasks run server-side in a queue; results land back in the conversation |
 | One-time virtual cards | Vault surrogation + approval flow; final payment step is deliberately left to you |
 
+> **Live demo:** <https://elio-production-9b75.up.railway.app/landing> — sign in with
+> `demo@moltmoney.dev` / `DemoJudge2026!` (or create your own account).
+
+Elio is the **AI half** of the [MoltMoney](../..) submission: MoltMoney is where PayPal
+lives — every purchase Elio decides on becomes a PayPal sandbox order created, approved
+and captured by MoltMoney, after Elio's Sentinel gate asks you first. See the
+[monorepo README](../../README.md) for the PayPal flow and the demo accounts.
+
+**Telegram is optional.** Approvals appear in Elio's chat and on its `/approvals` page;
+connecting a Telegram bot only adds a second place to approve from, and every other
+feature works without it.
+
 ## Stack
 
 - **Next.js 15 + TypeScript + Tailwind** (App Router, Node runtime)
