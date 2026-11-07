@@ -5,13 +5,44 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Sparkles, Mail, Lock, ArrowRight } from 'lucide-react'
+import { Sparkles, Mail, Lock, ArrowRight, PlayCircle } from 'lucide-react'
+
+// Public demo account, seeded with simulated money and a sample agent — judges
+// can click straight into a populated dashboard (no real funds move).
+const DEMO_EMAIL = process.env.NEXT_PUBLIC_DEMO_EMAIL || 'demo@moltmoney.dev'
+const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD || 'DemoJudge2026!'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [demoLoading, setDemoLoading] = useState(false)
+
+  const authenticate = async (loginEmail: string, loginPassword: string) => {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || 'Login failed')
+    }
+
+    // Store token in cookie with proper settings
+    document.cookie = `token=${data.token}; path=/; max-age=${24 * 60 * 60}; samesite=strict`
+
+    // Small delay to ensure cookie is set before redirect
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // Force a hard navigation to ensure middleware picks up the cookie
+    window.location.href = '/dashboard'
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -19,31 +50,22 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error?.message || 'Login failed')
-      }
-      
-      // Store token in cookie with proper settings
-      document.cookie = `token=${data.token}; path=/; max-age=${24 * 60 * 60}; samesite=strict`
-      
-      // Small delay to ensure cookie is set before redirect
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-      // Force a hard navigation to ensure middleware picks up the cookie
-      window.location.href = '/dashboard'
+      await authenticate(email, password)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
       setLoading(false)
+    }
+  }
+
+  const handleDemoLogin = async () => {
+    setError('')
+    setDemoLoading(true)
+
+    try {
+      await authenticate(DEMO_EMAIL, DEMO_PASSWORD)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Demo login failed')
+      setDemoLoading(false)
     }
   }
 
@@ -108,7 +130,7 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    disabled={loading}
+                    disabled={loading || demoLoading}
                     className="pl-11 h-12 rounded-xl border-gray-300 focus:border-purple-500 focus:ring-purple-500"
                   />
                 </div>
@@ -124,7 +146,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    disabled={loading}
+                    disabled={loading || demoLoading}
                     minLength={8}
                     className="pl-11 h-12 rounded-xl border-gray-300 focus:border-purple-500 focus:ring-purple-500"
                   />
@@ -134,12 +156,40 @@ export default function LoginPage() {
               <Button 
                 type="submit" 
                 className="w-full h-12 rounded-xl gradient-primary text-white font-semibold hover:shadow-lg hover:shadow-purple-500/50 transition-all duration-300 flex items-center justify-center space-x-2" 
-                disabled={loading}
+                disabled={loading || demoLoading}
               >
                 <span>{loading ? 'Signing in...' : 'Sign in'}</span>
                 {!loading && <ArrowRight className="w-5 h-5" />}
               </Button>
             </form>
+
+            <div className="mt-6">
+              <div className="relative mb-4">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-gray-200" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white/80 px-3 text-gray-500 tracking-wide">
+                    or
+                  </span>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleDemoLogin}
+                disabled={loading || demoLoading}
+                className="w-full h-12 rounded-xl border-purple-200 text-purple-700 font-semibold hover:bg-purple-50 flex items-center justify-center space-x-2"
+              >
+                <PlayCircle className="w-5 h-5" />
+                <span>{demoLoading ? 'Opening demo...' : 'Explore the demo account'}</span>
+              </Button>
+              <p className="mt-2 text-center text-xs text-gray-500">
+                Pre-loaded agent, spending policy and approvals. Simulated money,
+                PayPal sandbox only.
+              </p>
+            </div>
 
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600">

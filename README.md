@@ -10,6 +10,19 @@ spending-policy engine and explicit human approval gating every money movement.
 > (LLM-driven agent + policy engine), developed significantly during the
 > submission period.
 
+## Live demo (no install)
+
+- **MoltMoney dashboard** — <https://moltmoneydashboard-production.up.railway.app>
+  → click **Explore the demo account** on the sign-in page. It opens a pre-seeded
+  owner with an agent, a spending policy, a completed purchase and a pending
+  approval waiting for you. Balances are simulated and payments run against the
+  PayPal **sandbox** only — no real money exists anywhere in the demo.
+- **Elio** — <https://elio-production-9b75.up.railway.app/landing> → sign up with
+  any email.
+
+Prefer to run everything yourself? The quickstart below needs no Docker, no
+PayPal keys and no paid services.
+
 ```
 ┌──────────┐  chat/tasks  ┌──────────────┐  REST + agent keys + Sentinel  ┌────────────┐  Orders v2 (sandbox)  ┌──────────┐
 │  Elio    │ ───────────▶ │  MoltMoney   │ ─────────────────────────────▶ │   PayPal   │ ────────▶ user approves
