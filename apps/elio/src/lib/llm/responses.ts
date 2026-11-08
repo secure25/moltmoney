@@ -17,6 +17,15 @@ export function openAIResponsesAdapter(opts: {
   baseUrl: string;
   /** Extra headers — gateways with a client gate need a recognised User-Agent. */
   headers?: Record<string, string>;
+  /**
+   * Gateways in front of reasoning models (AgentRouter's gpt-5.6-sol / gpt-6-*)
+   * answer a request whose last input item is a `function_call_output` with an
+   * empty message (reasoning tokens spent, zero text, no tool call) — which
+   * reads to the agent loop as "(no content)" and kills every tool-using task.
+   * A trailing user turn makes the same request return a normal answer, so we
+   * append one after tool output when the gateway needs it.
+   */
+  continueAfterToolOutput?: boolean;
 }): LLMAdapter {
   return {
     provider: opts.provider,
@@ -46,6 +55,12 @@ export function openAIResponsesAdapter(opts: {
         } else if (m.role === "tool") {
           input.push({ type: "function_call_output", call_id: m.toolCallId, output: m.content });
         }
+      }
+
+      // See continueAfterToolOutput: without a trailing turn some gateways
+      // answer a tool result with an empty message and no tool call.
+      if (opts.continueAfterToolOutput && input.at(-1)?.type === "function_call_output") {
+        input.push({ role: "user", content: [{ type: "input_text", text: "Continue." }] });
       }
 
       const body: Record<string, unknown> = {

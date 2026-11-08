@@ -64,13 +64,17 @@ or `LLM_PROVIDER=openrouter` (+ `OPENROUTER_API_KEY`).
 
 A paid gateway (AgentRouter, APInex, CodeCraft, Clean APIs) plugs in the same way: set
 `LLM_PROVIDER` plus its key — and, for the gateways whose host is account-specific, the
-base URL it gives you. **AgentRouter quirks**, both handled by the adapter:
+base URL it gives you. **AgentRouter quirks**, all handled by the adapter:
 
 - its models are served only through the OpenAI **Responses** API (`/v1/responses`), so
   `/v1/chat/completions` answers "model … does not support /v1/chat/completions";
 - it rejects unrecognised HTTP clients with `401 unauthorized client detected` *before*
   it checks the key, so the adapter sends a Claude-CLI-style `User-Agent`
-  (`AGENTROUTER_USER_AGENT` to override).
+  (`AGENTROUTER_USER_AGENT` to override);
+- a request whose last item is a tool result comes back as an **empty message** (reasoning
+  tokens spent, no text, no tool call), which would end every tool-using task with
+  "(no content)" — the adapter appends a trailing `Continue.` turn after tool output so the
+  model answers normally.
 
 ```
 LLM_PROVIDER=agentrouter

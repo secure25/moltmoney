@@ -148,6 +148,33 @@ describe("Responses API adapter (agentrouter)", () => {
     ]);
   });
 
+  it("appends a trailing turn after tool output when the gateway needs one", async () => {
+    fetchMock.mockImplementation(async () => ok([{ type: "message", content: [{ type: "output_text", text: "hi" }] }]));
+
+    // AgentRouter returns an empty message when function_call_output is last.
+    const nudging = openAIResponsesAdapter({
+      provider: "agentrouter",
+      apiKey: "ar_test_key",
+      model: "gpt-test",
+      baseUrl: "https://gateway.example.com/v1",
+      continueAfterToolOutput: true,
+    });
+
+    await nudging.complete([
+      { role: "user", content: "search" },
+      { role: "assistant", content: "", toolCalls: [{ id: "call_1", name: "web_search", args: "{}" }] },
+      { role: "tool", content: "[]", toolCallId: "call_1", toolName: "web_search" },
+    ], {});
+
+    const withTool = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    expect(withTool.input.at(-1)).toEqual({ role: "user", content: [{ type: "input_text", text: "Continue." }] });
+
+    // …but never on a turn that has no tool output to continue from.
+    await nudging.complete([{ role: "user", content: "hello" }], {});
+    const plain = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(plain.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "hello" }] }]);
+  });
+
   it("reports the HTTP status so a capacity wall can cascade to the next provider", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ error: { message: "no available channel" } }), { status: 503 })

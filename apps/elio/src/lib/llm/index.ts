@@ -85,6 +85,9 @@ function buildAdapter(provider: string): LLMAdapter {
         "User-Agent": process.env.AGENTROUTER_USER_AGENT || "claude-cli/2.0.14 (external, cli)",
         "x-app": "cli",
       },
+      // AgentRouter answers a tool result with an empty message unless another
+      // turn follows, which would end every tool-using task with "(no content)".
+      continueAfterToolOutput: true,
     });
   }
   if (provider === "apinex") {
