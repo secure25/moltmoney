@@ -253,6 +253,48 @@ task that never starts, means the queue is wedged → **restart the Elio service
 prompt that triggers browsing will spend a step failing before it gives up; phrase demo prompts
 to avoid research entirely (see S4).
 
+### 4.10 Two windows, both open before recording
+
+The flow spans two applications, so the recording shows both. Open **two separate
+browser windows — not tabs**:
+
+- **Window A — MoltMoney Dashboard:**
+  `https://moltmoneydashboard-production.up.railway.app`
+  Click **"Explore the demo account"** and leave it on the Overview. Zoom 100%.
+- **Window B — Elio:**
+  `https://elio-production-9b75.up.railway.app/landing`
+  Sign in with `demo@moltmoney.dev` / `DemoJudge2026!` and land on the chat screen.
+
+Arrange A on the left and B on the right (or put A on a second display). Both must
+already be logged in and idle before the first take — never show a login on camera.
+Do not open a third window for either app and do not use tabs: switch with
+Alt+Tab / Cmd+Tab so the URL and full window chrome stay visible.
+
+Record the **whole desktop**, not a single window, so both surfaces are in frame and
+cuts between them read clearly. This supersedes any single-window assumption
+elsewhere in this section.
+
+**Which window is on screen, by segment:**
+
+| Segment | On screen | What it proves |
+|---|---|---|
+| S1 hook | B — owner types the goal | a human is talking to an agent, not a form |
+| S2–S3 policy and funding | A — rules inherited by the agent, and the balance | the owner sets the limits |
+| S4 purchase attempt | B prompt → A **Approvals** when the Sentinel card appears → click Approve → back to B | gate one: owner approval |
+| S5 PayPal | B shows the order, then the PayPal checkout window → pay → close it and return to B | gate two: payer approval |
+| S6 ledger | A — the transaction with provider and amount | the money actually moved |
+| S7 denial beat | B — the blocked purchase request and the refusal | rules are enforced, not advisory |
+| S8–S9 wrap | A overview → end card | the account judges can explore |
+
+**Two caveats:**
+
+- **PayPal is a third window and that is expected.** The checkout opens on its own
+  domain. Complete the payment, close that window, and return to Window B — do not
+  treat it as an error.
+- **Approve promptly.** The Sentinel approval waits 15 minutes before timing out and
+  the task queue is single-threaded, so nothing after it runs while it waits. Keep
+  S4 → S5 moving.
+
 ---
 
 ## 5. Global style rules (studio quality)
