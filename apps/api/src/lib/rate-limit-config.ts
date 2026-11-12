@@ -39,6 +39,24 @@ const globalWindowMs = isTest
   ? 60_000
   : intFromEnv('RATE_LIMIT_GLOBAL_WINDOW_SECONDS', 60) * 1000;
 const authWindowMs = isTest ? 60_000 : intFromEnv('RATE_LIMIT_AUTH_WINDOW_SECONDS', 60) * 1000;
+
+/**
+ * Auth *attempt* limiter (the in-process, IP-keyed one in auth.routes.ts).
+ *
+ * Separate from the plugin tier above because it is the limiter real users
+ * actually hit: it counts every attempt on /auth/login, /auth/register and
+ * /auth/agents/keys, including successful ones. A demo shared with judges
+ * must tolerate several people behind one NAT signing in during the same
+ * window — the previous 5-per-15-minutes default locked an entire shared IP
+ * out after a handful of tries. Brute-force protection now comes from the
+ * combination of this limit and the plugin's per-minute tier.
+ */
+export const AUTH_ATTEMPT_LIMIT = isTest
+  ? 1_000_000
+  : intFromEnv('RATE_LIMIT_AUTH_ATTEMPTS', 25);
+export const AUTH_ATTEMPT_WINDOW_MS = isTest
+  ? 60_000
+  : intFromEnv('RATE_LIMIT_AUTH_ATTEMPT_WINDOW_SECONDS', 300) * 1000;
 const moneyWindowMs = isTest ? 60_000 : intFromEnv('RATE_LIMIT_MONEY_WINDOW_SECONDS', 60) * 1000;
 
 /** Plugin-level (global) options, registered once in server.ts. */

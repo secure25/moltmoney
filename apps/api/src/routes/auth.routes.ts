@@ -1,6 +1,10 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { DATE_TIME, errorResponse } from '../lib/serialize';
-import { AUTH_RATE_LIMIT_CONFIG } from '../lib/rate-limit-config';
+import {
+  AUTH_RATE_LIMIT_CONFIG,
+  AUTH_ATTEMPT_LIMIT,
+  AUTH_ATTEMPT_WINDOW_MS,
+} from '../lib/rate-limit-config';
 import { z } from 'zod';
 import { OwnerAuthService } from '../services/auth/owner-auth.service';
 import { AgentAuthService } from '../services/auth/agent-auth.service';
@@ -27,18 +31,16 @@ export async function authRoutes(server: FastifyInstance) {
   const ownerAuthService = new OwnerAuthService(server.prisma);
   const agentAuthService = new AgentAuthService(server.prisma);
 
-  // Create rate limiter for auth endpoints
-  // Development: 100 attempts per 1 minute (for testing)
-  // Production: 5 attempts per 15 minutes
-  const isDevelopment = process.env.NODE_ENV !== 'production';
-  const authRateLimiter = createRateLimiter(
-    isDevelopment ? 100 : 5,
-    isDevelopment ? 60 * 1000 : 15 * 60 * 1000
+    // Create rate limiter for auth endpoints. Limits come from
+  // lib/rate-limit-config.ts so they can be tuned per deployment via
+  // RATE_LIMIT_AUTH_ATTEMPTS / RATE_LIMIT_AUTH_ATTEMPT_WINDOW_SECONDS.
+  const authRateLimiter = createRateLimiter(AUTH_ATTEMPT_LIMIT, AUTH_ATTEMPT_WINDOW_MS);
+
+  server.log.info(
+    `Auth attempt limiter: ${AUTH_ATTEMPT_LIMIT} attempts per ${Math.round(
+      AUTH_ATTEMPT_WINDOW_MS / 1000
+    )}s (per client IP)`
   );
-  
-  if (isDevelopment) {
-    server.log.info('Auth rate limiter: 100 attempts per minute (development mode)');
-  }
 
   /**
  * Current-owner response shape. Handler sends the raw owner row (which ALSO
